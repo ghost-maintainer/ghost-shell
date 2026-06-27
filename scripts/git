@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+
+set -e
+
+#########################################
+# Configuration
+#########################################
+
+MODEL="z-ai/glm-5.1"
+API_KEY="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"
+
+API_URL="https://integrate.api.nvidia.com/v1/chat/completions"
+
+COMPANY_NAME="Ghost Compiler"
+
+#########################################
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[1;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}Analyzing repository...${NC}"
+
+# Verify git repository
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+    echo "Not a Git repository."
+    exit 1
+}
+
+# Stage everything
+git add -A
+
+# Nothing to commit
+if git diff --cached --quiet; then
+    echo -e "${GREEN}Nothing to commit.${NC}"
+    exit 0
+fi
+
+#########################################
+# Collect changes
+#########################################
+
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    DIFF=$(git diff --cached --stat)
+    PATCH=$(git diff --cached --unified=0)
+else
+    DIFF=$(git diff --cached --stat)
+    PATCH=$(git diff --cached --unified=0 --no-index /dev/null . || true)
+fi
+
+#########################################
+# Prompt
+#########################################
+
+PROMPT=$(cat <<EOF
+You are a senior software engineer at $COMPANY_NAME.
+
+Generate ONE Conventional Commit message.
+
+Rules:
+
+- Maximum 8 words.
+- No body.
+- No explanation.
+- Lowercase type.
+- Use:
+  feat
+  fix
+  refactor
+  docs
+  style
+  chore
+  perf
+  test
+  ci
+  build
+
+Return ONLY the commit message.
+
+Repository changes:
+
+$DIFF
+
+$PATCH
+EOF
+)
+
+#########################################
+# Call NVIDIA API
+#########################################
+
+echo -e "${BLUE}Generating commit message...${NC}"
+
+COMMIT_MESSAGE=$(
+curl -s "$API_URL" \
+-H "Authorization: Bearer $API_KEY" \
+-H "Content-Type: application/json" \
+-d "$(jq -n \
+--arg model "$MODEL" \
+--arg prompt "$PROMPT" \
+'{
+model:$model,
+temperature:0.2,
+max_tokens:25,
+messages:[
+{
+role:"user",
+content:$prompt
+}
+]
+}')" \
+| jq -r '.choices[0].message.content // empty'
+)
+
+COMMIT_MESSAGE=$(echo "$COMMIT_MESSAGE" \
+| head -n1 \
+| sed 's/^"//;s/"$//' \
+| xargs)
+
+#########################################
+# Fallback
+#########################################
+
+if [ -z "$COMMIT_MESSAGE" ] || [ "$COMMIT_MESSAGE" = "null" ]; then
+    COMMIT_MESSAGE="chore: update project $(date '+%Y-%m-%d %H:%M')"
+fi
+
+echo
+echo -e "${GREEN}Commit:${NC} $COMMIT_MESSAGE"
+echo
+
+#########################################
+# Commit
+#########################################
+
+git commit -m "$COMMIT_MESSAGE"
+
+#########################################
+# Ensure main branch
+#########################################
+
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [ "$CURRENT_BRANCH" != "main" ]; then
+    git branch -M main
+fi
+
+#########################################
+# Detect remote
+#########################################
+
+if ! git remote get-url origin >/dev/null 2>&1; then
+    echo
+    echo "No origin remote configured."
+    echo "Add one using:"
+    echo
+    echo "git remote add origin <repo-url>"
+    exit 1
+fi
+
+#########################################
+# Push
+#########################################
+
+echo
+echo -e "${BLUE}Pushing to origin/main...${NC}"
+
+git push -u origin main
+
+echo
+echo -e "${GREEN}Done!${NC}"

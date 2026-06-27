@@ -1,0 +1,117 @@
+name: Build All Versions
+
+# Build every distributable target via scripts/ghost.js.
+# Trigger manually from the Actions tab, or on a version tag (v*).
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # needed for the optional release step on tags
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # Build one version at a time (sequentially) instead of all at once.
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-22.04
+            target: linux
+          - name: windows-x64
+            os: windows-latest
+            target: win:64
+          - name: windows-arm64
+            os: windows-latest
+            target: win:arm
+          - name: macos-intel
+            os: macos-latest
+            target: mac:intel
+          - name: macos-arm64
+            os: macos-latest
+            target: mac:arm
+          - name: macos-universal
+            os: macos-latest
+            target: mac:universal
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Universal/intel/arm all need both Apple arch targets present.
+      - name: Add macOS Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # Linux-only: system libraries Tauri needs to build the WebView/bundle.
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            curl wget file \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev
+
+      # ghost.js runs `npm install` itself, but doing it here uses the npm cache.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build ${{ matrix.target }}
+        run: npm run ghost build ${{ matrix.target }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghost-shell-${{ matrix.name }}
+          path: build/**
+          if-no-files-found: error
+          retention-days: 14
+
+  # Gather every per-target artifact into a single GitHub Release on tags.
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true

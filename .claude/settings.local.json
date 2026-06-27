@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check scripts/ghost.js)",
+      "Bash(node scripts/ghost.js badcommand)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(node scripts/ghost.js bogus)",
+      "Bash(python3 *)",
+      "Bash(node -e \"const fs=require\\('fs'\\);const s=fs.readFileSync\\('.github/workflows/build.yml','utf8'\\);const lines=s.split\\('\\\\n'\\);let ok=true;lines.forEach\\(\\(l,i\\)=>{if\\(/\\\\t/.test\\(l\\)\\){console.log\\('TAB at line',i+1\\);ok=false}}\\);console.log\\(ok?'No tabs, basic check OK':'Found tabs'\\);\")",
+      "Bash(npx --yes js-yaml .github/workflows/build.yml)"
+    ]
+  }
+}
