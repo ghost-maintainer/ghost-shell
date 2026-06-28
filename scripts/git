@@ -2,18 +2,24 @@
 
 set -e
 
-#########################################
-# Configuration
-#########################################
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="$ROOT/.env"
 
-MODEL="z-ai/glm-5.1"
-API_KEY="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"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "Missing ${ENV_FILE}. Create it with API_MODEL and API_KEY."
+    exit 1
+fi
+
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
+
+: "${API_MODEL:?Set API_MODEL in .env}"
+: "${API_KEY:?Set API_KEY in .env}"
 
 API_URL="https://integrate.api.nvidia.com/v1/chat/completions"
-
 COMPANY_NAME="Ghost Compiler"
-
-#########################################
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -28,7 +34,7 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
     exit 1
 }
 
-# Stage everything
+# Stage everything except ignored files (e.g. .env)
 git add -A
 
 # Nothing to commit
@@ -97,7 +103,7 @@ curl -s "$API_URL" \
 -H "Authorization: Bearer $API_KEY" \
 -H "Content-Type: application/json" \
 -d "$(jq -n \
---arg model "$MODEL" \
+--arg model "$API_MODEL" \
 --arg prompt "$PROMPT" \
 '{
 model:$model,
