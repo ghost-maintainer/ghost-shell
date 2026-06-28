@@ -199,7 +199,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
               <Button
                 variant="destructive"
                 className="w-full rounded-xs justify-start gap-2"
-                onClick={() => handleNavigate("/dashboard/wipe-data")}
+                onClick={() => handleNavigate("/dashboard/login")}
               >
                 <Trash2 />
                 <span className="text-xs">Wipe Data</span>

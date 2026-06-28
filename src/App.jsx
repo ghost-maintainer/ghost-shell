@@ -9,6 +9,7 @@ import ExportData from "./pages/export-data";
 import ImportData from "./pages/import-data";
 import WipeData from "./pages/wipe-data";
 import Settings from "./pages/settings";
+import Login from "./pages/login";
 
 export default function App() {
   return (
@@ -24,7 +25,8 @@ export default function App() {
         <Route path="/dashboard/import-data" element={<ImportData />} />
         <Route path="/dashboard/wipe-data" element={<WipeData />} />
         <Route path="/dashboard/settings" element={<Settings />} />
-        <Route path="*" element={<Navigate to="/dashboard/hosts" />} />
+        <Route path="/dashboard/login" element={<Login />} />
+        <Route path="*" element={<Navigate to="/dashboard/login" />} />
       </Routes>
     </HashRouter>
   );

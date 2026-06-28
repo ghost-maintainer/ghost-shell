@@ -189,7 +189,6 @@ function startDev() {
       stdio: "inherit",
       shell: IS_WIN,
       cwd: ROOT,
-      // own process group on Unix so we can kill the whole tree via -pid
       detached: !IS_WIN,
     });
 
