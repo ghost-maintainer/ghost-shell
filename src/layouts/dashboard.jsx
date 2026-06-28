@@ -90,7 +90,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
               return (
                 <button
                   key={index}
-                  className="text-xs px-2 py-2 bg-card leading-none rounded-t-sm flex flex-row items-center justify-center gap-1 data-[active=true]:bg-primary text-white cursor-pointer border-primary dark:border-muted  border data-[active=false]:border-b-background dark:data-[active=false]:border-b-sidebar pb-1.5"
+                  className="text-xs px-2 py-2 bg-card leading-none rounded-t-sm flex flex-row items-center justify-center gap-1 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground cursor-pointer border-primary dark:border-muted  border data-[active=false]:border-b-background dark:data-[active=false]:border-b-sidebar pb-1.5"
                   onClick={() => handleNavigate(item.href)}
                   data-active={location.pathname.startsWith(item.href)}
                 >
