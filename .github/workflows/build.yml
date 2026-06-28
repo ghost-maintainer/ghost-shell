@@ -139,13 +139,18 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Gather every per-target artifact into a GitHub Release on tags (or manual).
+  # Publish installers to GitHub Releases after every successful main build,
+  # on version tags, or when manually triggered with publish_release.
   release:
     name: Release
     needs: build
     if: >-
-      startsWith(github.ref, 'refs/tags/v') ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+      needs.build.result == 'success' &&
+      (
+        startsWith(github.ref, 'refs/tags/v') ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish_release) ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -162,6 +167,10 @@ jobs:
           mkdir -p release-assets
           find artifacts -type f -exec cp -n {} release-assets/ \;
           ls -la release-assets/
+          if [ -z "$(ls -A release-assets)" ]; then
+            echo "No release assets found — build artifacts may be missing."
+            exit 1
+          fi
 
       - name: Resolve release tag
         id: tag
@@ -174,10 +183,16 @@ jobs:
           fi
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.name }}
-          name: Ghost Shell ${{ steps.tag.outputs.name }}
-          files: release-assets/*
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" \
+              --target "${{ github.sha }}" \
+              --title "Ghost Shell ${TAG}" \
+              --generate-notes \
+              release-assets/*
+          fi
