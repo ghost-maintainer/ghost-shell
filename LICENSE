@@ -1,16 +1,46 @@
-MIT License
+Ghost Shell License
 
 Copyright (c) 2026 GhostCompiler
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This license is based on the MIT License, with additional terms that govern
+naming, branding, and attribution (Section 2). It permits free use and
+modification of the source code while reserving the project's identity.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Grant of Rights
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction — including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software — and to permit persons to whom the Software is furnished to do
+so, subject to the conditions in Sections 2 and 3.
+
+2. Naming, Branding, and Attribution
+
+The following are reserved by the author and MAY NOT be changed, removed,
+obscured, or replaced in the Software or in any modified or derivative version,
+including its source code, user interface, application metadata, build
+artifacts, package identifiers, and documentation:
+
+  (a) the product name "Ghost Shell";
+  (b) the author and brand name "GhostCompiler";
+  (c) the copyright notice and this license.
+
+You may freely modify and redistribute the Software, but every copy and
+derivative work must continue to be identified as "Ghost Shell" by
+"GhostCompiler" and must retain the notices above. Renaming, rebranding, or
+distributing the Software under a different product name, brand, or author
+identity requires prior written permission from the author.
+
+This clause does not prevent you from truthfully describing your own changes,
+for example: "Based on Ghost Shell by GhostCompiler, with modifications."
+
+3. Inclusion of Notice
+
+The above copyright notice, this permission notice, and the terms of Section 2
+shall be included in all copies or substantial portions of the Software.
+
+4. Disclaimer of Warranty
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

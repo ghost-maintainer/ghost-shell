@@ -1,179 +1,163 @@
+<div align="center">
+
+<img src="src/assets/app-icon.png" alt="Ghost Shell" width="120" height="120" />
+
 # Ghost Shell
 
-A desktop SSH/SFTP client built with **Tauri 2** + **React 19** + **Vite** and **Tailwind / shadcn-ui**.
+**A fast, cross-platform SSH & SFTP client — built with Tauri, React, and Rust.**
 
-The whole project lifecycle is driven by a single CLI — `scripts/ghost.js` — exposed through
-the `ghost` npm script. You never call `vite` or `tauri` directly.
+[![Build](https://github.com/ghost-maintainer/ghost-shell/actions/workflows/build.yml/badge.svg)](https://github.com/ghost-maintainer/ghost-shell/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/ghost-maintainer/ghost-shell?include_prereleases&sort=semver)](https://github.com/ghost-maintainer/ghost-shell/releases/latest)
+[![License](https://img.shields.io/badge/License-Source--Available-blue.svg)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-informational)
+[![Made with Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
+
+[**Download**](#-download) · [**Install**](#-installation) · [**Develop**](#-development) · [**Roadmap**](#-roadmap)
+
+</div>
 
 ---
 
-## Download
+> [!NOTE]
+> **Project status: early development.** The desktop shell, navigation, theming, and the full
+> cross-platform CI/CD pipeline are in place. The SSH/SFTP engine and encrypted vault are under
+> active development — see the [Roadmap](#-roadmap).
+
+## ✨ Features
+
+- 🔐 **SSH host management** — organise and connect to your servers from one place
+- 📁 **SFTP browser** — transfer and manage remote files _(in progress)_
+- 🗝️ **Encrypted keychain** — credentials secured behind a master password _(in progress)_
+- 💾 **Import / export & backup** of your hosts and keys
+- 🎨 **Light / dark / system themes**
+- 🖥️ **Truly cross-platform** — native installers for Windows, macOS, and Linux
+- ⚡ **Tiny & native** — Rust core, no bundled browser engine (Tauri)
+
+## 📦 Download
 
 ### **[⬇ Download the latest release →](https://github.com/ghost-maintainer/ghost-shell/releases/latest)**
 
 Prebuilt installers for every platform are published on the
-[**Releases**](https://github.com/ghost-maintainer/ghost-shell/releases) page
-(created automatically when a `v*` tag is pushed). Pick the file that matches your system:
+[**Releases**](https://github.com/ghost-maintainer/ghost-shell/releases) page, generated
+automatically by CI whenever a `v*` tag is pushed. Pick the file that matches your system:
 
-| Platform    | Architecture           | File to download                                                |
-| ----------- | ---------------------- | --------------------------------------------------------------- |
-| **Windows** | x64 (Intel / AMD)      | `Ghost Shell_<ver>_x64-setup.exe`  ·  `Ghost Shell_<ver>_x64_en-US.msi`   |
-| **Windows** | ARM64                  | `Ghost Shell_<ver>_arm64-setup.exe`  ·  `Ghost Shell_<ver>_arm64_en-US.msi` |
-| **macOS**   | Apple Silicon (M1+)    | `Ghost Shell_<ver>_aarch64.dmg`                                 |
-| **macOS**   | Intel                  | `Ghost Shell_<ver>_x64.dmg`                                     |
-| **macOS**   | Universal (any Mac)    | `Ghost Shell_<ver>_universal.dmg`                              |
-| **Linux**   | x86_64                 | `Ghost Shell_<ver>_amd64.AppImage`  ·  `..._amd64.deb`  ·  `...-1.x86_64.rpm` |
+| Platform    | Architecture        | Recommended file                                       |
+| ----------- | ------------------- | ------------------------------------------------------ |
+| **Windows** | x64 (Intel / AMD)   | `Ghost Shell_<ver>_x64-setup.exe`                      |
+| **Windows** | ARM64               | `Ghost Shell_<ver>_arm64-setup.exe`                   |
+| **macOS**   | Apple Silicon (M1+) | `Ghost Shell_<ver>_aarch64.dmg`                       |
+| **macOS**   | Intel               | `Ghost Shell_<ver>_x64.dmg`                           |
+| **macOS**   | Any Mac (universal) | `Ghost Shell_<ver>_universal.dmg`                    |
+| **Linux**   | x86_64              | `Ghost Shell_<ver>_amd64.AppImage`                   |
 
-> `<ver>` is the release version (e.g. `0.1.0`). On GitHub, spaces in asset names are shown as
-> dots (`Ghost.Shell_...`) — that's normal.
+<details>
+<summary>Other formats</summary>
+
+- **Windows:** `.msi` (`Ghost Shell_<ver>_<arch>_en-US.msi`) for managed/silent installs
+- **Linux:** `.deb` (Debian/Ubuntu) and `.rpm` (Fedora/RHEL) packages
+
+</details>
+
+> `<ver>` is the release version (e.g. `0.1.0`). GitHub displays spaces in asset names as dots.
 
 > [!WARNING]
-> **All builds are unsigned.** This project has no Apple Developer, Windows code-signing, or
-> Linux package-signing certificates, so every OS will warn you the first time you open the app.
-> The installers are safe — you just need to tell your OS to trust them. See the steps below.
+> **All builds are unsigned.** This project does not (yet) have an Apple Developer, Windows
+> code-signing, or Linux package-signing certificate, so your OS will warn you the first time you
+> open the app. The installers are safe — you simply need to allow them once, as shown below.
 
----
+## 🛠 Installation
 
-## Installation
+### <img src="https://api.iconify.design/mdi/microsoft-windows.svg" width="14"/> Windows
 
-### 🪟 Windows
+Windows **SmartScreen** will show *"Windows protected your PC."*
 
-Unsigned, so **SmartScreen** shows *"Windows protected your PC."*
-
-1. Run **`Ghost Shell_<ver>_x64-setup.exe`** (or the `.msi`). Use the `arm64` files on ARM devices.
-2. On the blue SmartScreen dialog, click **More info → Run anyway**.
-3. Continue through the installer.
-
-Silent / managed install via MSI:
+1. Run **`Ghost Shell_<ver>_x64-setup.exe`** (use the `arm64` build on ARM devices).
+2. Click **More info → Run anyway**.
+3. Complete the installer.
 
 ```powershell
+# Silent install via MSI (for IT-managed environments)
 msiexec /i "Ghost Shell_<ver>_x64_en-US.msi" /qn
 ```
 
-### 🍎 macOS
+### <img src="https://api.iconify.design/mdi/apple.svg" width="14"/> macOS
 
-Unsigned and un-notarized, so Gatekeeper blocks the first launch with either
-*"Ghost Shell is damaged and can't be opened"* or *"…cannot be opened because Apple cannot check
-it for malicious software."* This is expected — clear the quarantine flag:
+Because the app is unsigned and un-notarized, Gatekeeper blocks the first launch with
+*"Ghost Shell is damaged…"* or *"…cannot be opened because Apple cannot check it."* This is
+expected — clear the quarantine flag:
 
-1. Open the `.dmg` and drag **Ghost Shell** into **Applications**
-   (Apple Silicon → `aarch64`, Intel → `x64`, or `universal` for any Mac).
-2. Remove the quarantine attribute (most reliable fix):
+1. Open the `.dmg` and drag **Ghost Shell** into **Applications**.
+2. Remove the quarantine attribute:
 
    ```bash
    xattr -dr com.apple.quarantine "/Applications/Ghost Shell.app"
    ```
 
-3. Launch **Ghost Shell** normally from Applications / Launchpad.
+3. Launch normally from Applications / Launchpad.
 
-**No-Terminal alternative:** try to open the app once (it gets blocked), then go to
-**System Settings → Privacy & Security**, scroll down, and click **Open Anyway**, then confirm.
-(On macOS 15 Sequoia the old right-click → Open shortcut was removed, so use this Settings method
-or the `xattr` command above.)
+> **No-Terminal alternative:** try to open the app once (it gets blocked), then go to
+> **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**. _(Required on
+> macOS 15 Sequoia, which removed the old right-click → Open shortcut.)_
 
-### 🐧 Linux (x86_64)
+### <img src="https://api.iconify.design/mdi/linux.svg" width="14"/> Linux (x86_64)
 
-No signature prompts, but the packages are unofficial. Choose one format:
-
-**AppImage** — portable, no install:
+**AppImage** — portable, nothing to install:
 
 ```bash
 chmod +x "Ghost Shell_<ver>_amd64.AppImage"
-./"Ghost Shell_<ver>_amd64.AppImage"
+./"Ghost Shell_<ver>_amd64.AppImage"     # needs FUSE: sudo apt install libfuse2
 ```
 
-> Needs FUSE. On Ubuntu 22.04+: `sudo apt install libfuse2`.
-
-**Debian / Ubuntu (.deb):**
+**Debian / Ubuntu:**
 
 ```bash
 sudo apt install "./Ghost Shell_<ver>_amd64.deb"
-# or: sudo dpkg -i "Ghost Shell_<ver>_amd64.deb" && sudo apt -f install
 ```
 
-**Fedora / RHEL / openSUSE (.rpm):**
+**Fedora / RHEL / openSUSE:**
 
 ```bash
 sudo dnf install "./Ghost Shell-<ver>-1.x86_64.rpm"
-# or: sudo rpm -i "Ghost Shell-<ver>-1.x86_64.rpm"
 ```
 
----
+## 💻 Development
 
-## Requirements
+### Prerequisites
 
-- **Node.js** 18+ (ESM)
-- **Rust** + Cargo (for the Tauri shell) — https://rustup.rs
-- **npm** (ships with Node)
+- [**Node.js**](https://nodejs.org) 20+
+- [**Rust**](https://rustup.rs) (stable toolchain) + the Tauri
+  [system dependencies](https://tauri.app/start/prerequisites/) for your OS
 
----
+### The `ghost` CLI
 
-## Commands
-
-All commands run through `npm run ghost <command> [target]`.
-
-| Command                      | What it does                                                                                  |
-| ---------------------------- | --------------------------------------------------------------------------------------------- |
-| `npm run ghost dev`          | Installs dependencies, then starts the Tauri dev server.                                       |
-| `npm run ghost build`        | Builds for the **current OS**, collects distributables, removes intermediates.                |
-| `npm run ghost build <tgt>`  | Cross-builds for a specific target/group (see below).                                          |
-| `npm run ghost icon`         | Regenerates all app icons from `src/assets/app-icon.png`.                                       |
-
-### Build targets
-
-| Target          | Meaning                                  |
-| --------------- | ---------------------------------------- |
-| _(none)_        | Current operating system                 |
-| `linux`         | Current OS (alias)                       |
-| `win:64`        | Windows x86_64                           |
-| `win:arm`       | Windows ARM64                            |
-| `win`           | Group: `win:64` + `win:arm`              |
-| `mac:arm`       | macOS Apple Silicon                      |
-| `mac:intel`     | macOS Intel                              |
-| `mac:universal` | macOS universal binary                   |
-| `mac`           | Group: `mac:arm` + `mac:intel` + `mac:universal` |
-
-Missing Rust targets are added automatically via `rustup target add`.
-
----
-
-## Demo
-
-### Develop
+The entire project lifecycle runs through one wrapper — `scripts/ghost.js` — so you never call
+`vite` or `tauri` directly:
 
 ```bash
-npm run ghost dev
+npm run ghost dev            # install deps + start the dev app (hot reload)
+npm run ghost build          # build installers for the current OS
+npm run ghost build <target> # cross-build a specific target/group
+npm run ghost icon           # regenerate app icons from src/assets/app-icon.png
 ```
 
-```
-📦 Installing dependencies (npm install)...
-🚀 Starting Tauri dev server...  (Ctrl+R restart · Ctrl+C quit)
-```
+While `dev` is running: **Ctrl + R** restarts the app, **Ctrl + C** quits (and clears
+`node_modules` for a clean next run).
 
-While the dev server is running:
+#### Build targets
 
-- **Ctrl + R** — restart the dev server
-- **Ctrl + C** — quit **and remove `node_modules`** (clean slate for next run)
+| Target          | Output                                  |
+| --------------- | --------------------------------------- |
+| _(none)_        | Current operating system                |
+| `win:64`        | Windows x86_64                          |
+| `win:arm`       | Windows ARM64                           |
+| `win`           | Both Windows targets                    |
+| `mac:intel`     | macOS Intel                             |
+| `mac:arm`       | macOS Apple Silicon                     |
+| `mac:universal` | macOS universal binary                  |
+| `mac`           | All three macOS targets                 |
 
-> Every `dev` run reinstalls dependencies, so the tree is always fresh.
-
-### Build (current OS)
-
-```bash
-npm run ghost build
-```
-
-```
-📦 Installing dependencies (npm install)...
-🔨 Building for current OS...
-📁 Collecting installers → build/
-   • Ghost Shell_0.1.0_x64.dmg
-🧹 Removing build intermediates (src-tauri/target)...
-✅ Done. Distributables are in build/
-```
-
-Only the final installer files land in `build/` — flattened, with no nested folders or
-build junk:
+Missing Rust targets are installed automatically via `rustup target add`. After a build, only the
+final installers are kept — flattened into `build/`, with all intermediates removed:
 
 ```
 build/
@@ -181,44 +165,63 @@ build/
 └─ Ghost Shell_0.1.0_x64_en-US.msi
 ```
 
-### Cross-build (e.g. all Windows targets)
+> **Tip:** for a direct, unzipped download of any installer, use the **Releases** page — GitHub
+> always serves Actions artifacts as a `.zip`, whereas release assets are the raw files.
 
-```bash
-npm run ghost build win
-```
-
-All targets' installers land directly in `build/` (filenames are arch-specific, so they don't
-collide):
+## 🧱 Project structure
 
 ```
-build/
-├─ Ghost Shell_0.1.0_x64-setup.exe
-├─ Ghost Shell_0.1.0_x64_en-US.msi
-├─ Ghost Shell_0.1.0_arm64-setup.exe
-└─ Ghost Shell_0.1.0_arm64_en-US.msi
+ghost-shell/
+├─ .github/workflows/build.yml   # CI: parallel multi-platform builds + releases
+├─ scripts/ghost.js              # project CLI (dev / build / icon)
+├─ src/                          # React 19 frontend
+│  ├─ pages/                     #   routed views (hosts, keychain, sftp, settings, …)
+│  ├─ components/ui/             #   shadcn/ui component library
+│  ├─ layouts/                   #   app shell & navigation
+│  ├─ provider/                  #   theme provider
+│  └─ css/                       #   Tailwind v4 styles
+├─ src-tauri/                    # Rust backend (Tauri 2)
+│  ├─ src/                       #   Rust source
+│  ├─ Cargo.toml
+│  └─ tauri.conf.json            #   window / bundle configuration
+└─ package.json
 ```
 
-### Regenerate icons
+## 🧰 Tech stack
 
-```bash
-npm run ghost icon
-```
+| Layer        | Technology                                              |
+| ------------ | ------------------------------------------------------- |
+| Shell        | [Tauri 2](https://tauri.app) (Rust)                     |
+| Frontend     | [React 19](https://react.dev) · [Vite](https://vite.dev) · [React Router](https://reactrouter.com) |
+| UI / styling | [Tailwind CSS 4](https://tailwindcss.com) · [shadcn/ui](https://ui.shadcn.com) · [Lucide](https://lucide.dev) |
+| Tooling      | Node-based `ghost` CLI · GitHub Actions                 |
 
----
+## 🗺 Roadmap
 
-## What lands where
+- [x] Cross-platform desktop shell, routing & theming
+- [x] One-command `ghost` developer CLI
+- [x] Parallel CI builds + automated releases (Windows / macOS / Linux)
+- [ ] SSH connection backend (Rust)
+- [ ] Interactive terminal sessions
+- [ ] SFTP file browser & transfers
+- [ ] Encrypted keychain with master-password unlock
+- [ ] Host management UI, logs, settings & data import/export
+- [ ] Code signing & notarization
 
-After a build, **only the final distributables** (installers / app bundles) are kept in
-`build/`. The heavy Rust `src-tauri/target/` directory and raw binaries are deleted to keep the
-repo lean.
+## 🤝 Contributing
 
-| Path                | Kept? | Notes                                                   |
-| ------------------- | ----- | ------------------------------------------------------- |
-| `build/`            | ✅    | Final `.app` / `.dmg` / `.msi` / `.exe` / `.deb`        |
-| `src-tauri/target/` | ❌    | Removed after each build (success **or** failure)       |
-| `dist/`             | ❌    | Vite frontend output; removed after build (success/fail)|
-| `node_modules/`     | ❌\*  | Removed when you `Ctrl+C` out of `dev`                  |
+Contributions are welcome! To get started:
 
-\* Reinstalled automatically on the next `dev` / `build`.
+1. Fork the repository and create a feature branch.
+2. Run `npm run ghost dev` and make your changes.
+3. Ensure `npm run ghost build` succeeds for your platform.
+4. Open a pull request with a clear description of the change.
 
-`build/` and `node_modules/` are git-ignored.
+## 📄 License
+
+Source-available under the [**Ghost Shell License**](LICENSE) — a modified MIT license.
+
+You are free to **use, modify, and redistribute** the source code. However, the product name
+**"Ghost Shell"**, the author/brand **"GhostCompiler"**, and the copyright notice must be
+preserved in all copies and derivative works. Rebranding or distributing under a different name
+requires prior written permission. See the [LICENSE](LICENSE) for full terms.

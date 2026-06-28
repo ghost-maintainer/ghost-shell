@@ -1,4 +1,4 @@
-name: Build All Versions
+name: Build & Release
 
 # Build every distributable target via scripts/ghost.js.
 # Runs on every push (any branch) and on version tags (v*); also manual.
@@ -22,6 +22,7 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     # All targets build in parallel (each on its own runner).
     strategy:
       fail-fast: false
@@ -120,3 +121,4 @@ jobs:
         with:
           files: artifacts/**/*
           generate_release_notes: true
+          fail_on_unmatched_files: true
