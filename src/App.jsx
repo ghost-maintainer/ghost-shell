@@ -10,24 +10,32 @@ import ImportData from "./pages/import-data";
 import WipeData from "./pages/wipe-data";
 import Settings from "./pages/settings";
 import Login from "./pages/login";
+import { SecurityProvider, useSecurity } from "./provider/security-provider";
+
+function AuthGuard({ children }) {
+  const { unlocked } = useSecurity();
+  return unlocked ? children : <Navigate to="/dashboard/login" replace />;
+}
 
 export default function App() {
   return (
     <HashRouter>
-      <Routes>
-        <Route path="/dashboard/hosts" element={<Hosts />} />
-        <Route path="/dashboard/hosts/:hostID" element={<HostTab />} />
-        <Route path="/dashboard/keys" element={<Keys />} />
-        <Route path="/dashboard/sftp" element={<SftpTab />} />
-        <Route path="/dashboard/add-hosts" element={<AddHosts />} />
-        <Route path="/dashboard/logs" element={<Logs />} />
-        <Route path="/dashboard/export-data" element={<ExportData />} />
-        <Route path="/dashboard/import-data" element={<ImportData />} />
-        <Route path="/dashboard/wipe-data" element={<WipeData />} />
-        <Route path="/dashboard/settings" element={<Settings />} />
-        <Route path="/dashboard/login" element={<Login />} />
-        <Route path="*" element={<Navigate to="/dashboard/login" />} />
-      </Routes>
+      <SecurityProvider>
+        <Routes>
+          <Route path="/dashboard/hosts" element={<AuthGuard><Hosts /></AuthGuard>} />
+          <Route path="/dashboard/hosts/:hostID" element={<AuthGuard><HostTab /></AuthGuard>} />
+          <Route path="/dashboard/keys" element={<AuthGuard><Keys /></AuthGuard>} />
+          <Route path="/dashboard/sftp" element={<AuthGuard><SftpTab /></AuthGuard>} />
+          <Route path="/dashboard/add-hosts" element={<AuthGuard><AddHosts /></AuthGuard>} />
+          <Route path="/dashboard/logs" element={<AuthGuard><Logs /></AuthGuard>} />
+          <Route path="/dashboard/export-data" element={<AuthGuard><ExportData /></AuthGuard>} />
+          <Route path="/dashboard/import-data" element={<AuthGuard><ImportData /></AuthGuard>} />
+          <Route path="/dashboard/wipe-data" element={<AuthGuard><WipeData /></AuthGuard>} />
+          <Route path="/dashboard/settings" element={<AuthGuard><Settings /></AuthGuard>} />
+          <Route path="/dashboard/login" element={<Login />} />
+          <Route path="*" element={<Navigate to="/dashboard/login" />} />
+        </Routes>
+      </SecurityProvider>
     </HashRouter>
   );
 }

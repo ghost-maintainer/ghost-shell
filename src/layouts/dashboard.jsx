@@ -4,6 +4,7 @@ import {
   ButtonGroupSeparator,
 } from "@/components/ui/button-group";
 import { useTheme } from "@/provider/theme-provider";
+import { useSecurity } from "@/provider/security-provider";
 import {
   Download,
   LogsIcon,
@@ -32,6 +33,8 @@ import { env } from "@/config/env";
 
 export default function DashboardLayout({ children, sidebar = true }) {
   const { theme, setTheme } = useTheme();
+  const { lock, wipeData } = useSecurity();
+  const [showWipeConfirm, setShowWipeConfirm] = React.useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const MENU_ITEMS = [
@@ -199,7 +202,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
               <Button
                 variant="destructive"
                 className="w-full rounded-xs justify-start gap-2"
-                onClick={() => handleNavigate("/dashboard/login")}
+                onClick={() => setShowWipeConfirm(true)}
               >
                 <Trash2 />
                 <span className="text-xs">Wipe Data</span>
@@ -212,6 +215,27 @@ export default function DashboardLayout({ children, sidebar = true }) {
         </div>
       ) : (
         <main className="flex-1 p-3">{children}</main>
+      )}
+      {showWipeConfirm && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+          <div className="border bg-sidebar p-6 rounded-xl max-w-md w-full shadow-lg space-y-4 m-4 animate-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-destructive">Wipe All Secure Data?</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Are you absolutely sure you want to proceed? This will permanently delete all your saved hosts, credentials, public/private keys, and encryption settings. This action is irreversible.
+            </p>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={() => setShowWipeConfirm(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={() => {
+                setShowWipeConfirm(false);
+                wipeData();
+              }}>
+                Wipe Everything
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

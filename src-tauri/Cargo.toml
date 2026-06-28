@@ -24,6 +24,15 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+aes-gcm = "0.10"
+pbkdf2 = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+ssh-key = { version = "0.6", features = ["ed25519", "rsa", "p256", "p384", "p521", "crypto"] }
+chrono = "0.4"
+rsa = "0.9"
+rfd = "0.14"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -33,3 +42,6 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[profile.dev]
+opt-level = 3

@@ -28,7 +28,6 @@ import {
 } from "@/components/ui/tooltip";
 
 import {
-  EditIcon,
   EyeIcon,
   EyeOffIcon,
   KeyIcon,
@@ -39,11 +38,17 @@ import {
   SearchIcon,
   TrashIcon,
   X,
+  CopyIcon,
+  Loader2,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { invoke } from "@tauri-apps/api/core";
 
 export default function KeyChain() {
+  const [keys, setKeys] = React.useState([]);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  
   const [openAddKey, setOpenAddKey] = React.useState(false);
   const [openGenerateKey, setOpenGenerateKey] = React.useState(false);
   const [showPassphrase, setShowPassphrase] = React.useState(false);
@@ -51,22 +56,125 @@ export default function KeyChain() {
   const [rsaKeySize, setRsaKeySize] = React.useState("4096");
   const [ecdsaKeySize, setEcdsaKeySize] = React.useState("521");
 
-  const KEYS = [
-    ...Array.from({ length: 10 }, (_, index) => {
-      const type = index % 3 === 0 ? "rsa" : index % 3 === 1 ? "ecdsa" : "ed25519";
-      const size = index % 3 === 0 ? "4096" : index % 3 === 1 ? "384" : "256";
-      return {
-        id: index + 1,
-        name: `Key ${index + 1}`,
-        type: type,
+  // Add/View Form States
+  const [sheetMode, setSheetMode] = React.useState("add"); // "add" | "view"
+  const [selectedKey, setSelectedKey] = React.useState(null);
+  const [addName, setAddName] = React.useState("");
+  const [addPrivateKey, setAddPrivateKey] = React.useState("");
+  const [addPublicKey, setAddPublicKey] = React.useState("");
+  const [addCertificate, setAddCertificate] = React.useState("");
+
+  // Generate Key Form States
+  const [genName, setGenName] = React.useState("");
+  const [genPassphrase, setGenPassphrase] = React.useState("");
+  const [genSavePassphrase, setGenSavePassphrase] = React.useState(false);
+
+  const [loading, setLoading] = React.useState(false);
+
+  const loadKeys = async () => {
+    try {
+      const list = await invoke("get_keys");
+      setKeys(list || []);
+    } catch (err) {
+      console.error("Failed to load keys:", err);
+    }
+  };
+
+  React.useEffect(() => {
+    loadKeys();
+  }, []);
+
+  const handleCopy = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    alert("Copied to clipboard!");
+  };
+
+  const handleAddKey = async () => {
+    if (!addName || !addPrivateKey) {
+      alert("Name and Private Key are required.");
+      return;
+    }
+    
+    setLoading(true);
+    
+    let detectedType = "rsa";
+    if (addPrivateKey.includes("EC PRIVATE KEY") || addPrivateKey.includes("ecdsa")) {
+      detectedType = "ecdsa";
+    } else if (addPrivateKey.includes("ed25519") || addPrivateKey.includes("ED25519")) {
+      detectedType = "ed25519";
+    }
+
+    const entry = {
+      id: 0,
+      name: addName,
+      type: detectedType,
+      size: detectedType === "rsa" ? "2048" : "256",
+      private_key: addPrivateKey,
+      public_key: addPublicKey,
+      passphrase: null,
+      certificate: addCertificate || null,
+      created_at: new Date().toISOString().split("T")[0],
+      updated_at: new Date().toISOString().split("T")[0],
+    };
+
+    try {
+      await invoke("add_key", { entry });
+      setOpenAddKey(false);
+      clearAddStates();
+      loadKeys();
+    } catch (err) {
+      alert("Failed to save key: " + err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateKey = async () => {
+    if (!genName) {
+      alert("Key name is required.");
+      return;
+    }
+    
+    const size = keyType === "rsa" ? rsaKeySize : keyType === "ecdsa" ? ecdsaKeySize : "";
+    setLoading(true);
+    try {
+      await invoke("generate_key", {
+        name: genName,
+        keyType: keyType,
         size: size,
-        passphrase: Math.random().toString(36).substring(2, 15),
-        createdAt: "2021-01-01",
-        updatedAt: "2021-01-01",
-      };
-    }),
-  ];
-  console.log(KEYS);
+        passphrase: genPassphrase || null,
+        savePassphrase: genSavePassphrase,
+      });
+      setOpenGenerateKey(false);
+      clearGenStates();
+      loadKeys();
+    } catch (err) {
+      alert("Failed to generate key: " + err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  const clearAddStates = () => {
+    setAddName("");
+    setAddPrivateKey("");
+    setAddPublicKey("");
+    setAddCertificate("");
+    setSelectedKey(null);
+  };
+
+  const clearGenStates = () => {
+    setGenName("");
+    setGenPassphrase("");
+    setGenSavePassphrase(false);
+  };
+
+  const filteredKeys = keys.filter((k) =>
+    k.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    k.type.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <DashboardLayout>
@@ -76,7 +184,11 @@ export default function KeyChain() {
             <InputGroupAddon>
               <SearchIcon className="size-4" />
             </InputGroupAddon>
-            <InputGroupInput placeholder="Search keys..." />
+            <InputGroupInput 
+              placeholder="Search keys..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </InputGroup>
           <ButtonGroup>
             <Tooltip>
@@ -84,13 +196,17 @@ export default function KeyChain() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setOpenAddKey(true)}
+                  onClick={() => {
+                    setSheetMode("add");
+                    clearAddStates();
+                    setOpenAddKey(true);
+                  }}
                 >
                   <PlusIcon />
                   Add Key
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Add an existing key pair</TooltipContent>
+              <TooltipContent>Import an existing key pair</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -109,133 +225,283 @@ export default function KeyChain() {
           </ButtonGroup>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
-          {KEYS.map((key) => (
-            <div key={key.id} className="border bg-sidebar rounded-lg px-3 py-2 flex flex-row gap-2">
-              <div className="size-10 bg-primary/30 rounded-md flex items-center justify-center shrink-0 border border-primary/50">
-                <KeyIcon className="size-5 text-primary-foreground" />
-              </div>
-              <div className="flex flex-col space-y-1 items-start justify-center flex-1">
-                <p className="text-sm font-medium leading-none text-foreground">{key.name}</p>
-                <p className="text-xs leading-none text-foreground/80">{key.type}</p>
-              </div>
-              <div className="flex flex-col space-y-1 items-end justify-center">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      size="icon-xs"
-                      variant="outline"
-                      className="rounded-xs cursor-pointer"
+        {filteredKeys.length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-8 bg-sidebar border rounded-lg">
+            <KeyIcon className="size-8 text-muted-foreground mb-2 animate-bounce" />
+            <p className="text-sm font-medium text-foreground">No keys found</p>
+            <p className="text-xs text-muted-foreground">Add or generate a secure SSH key to get started.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
+            {filteredKeys.map((key) => (
+              <div key={key.id} className="border bg-sidebar rounded-lg px-3 py-2 flex flex-row gap-2">
+                <div className="size-10 bg-primary/30 rounded-md flex items-center justify-center shrink-0 border border-primary/50">
+                  <KeyIcon className="size-5 text-primary-foreground" />
+                </div>
+                <div className="flex flex-col space-y-1 items-start justify-center flex-1">
+                  <p className="text-sm font-medium leading-none text-foreground">{key.name}</p>
+                  <p className="text-xs leading-none text-foreground/80 uppercase">
+                    {key.type} {key.size ? `(${key.size}b)` : ""}
+                  </p>
+                </div>
+                <div className="flex flex-col space-y-1 items-end justify-center">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="icon-xs"
+                        variant="outline"
+                        className="rounded-xs cursor-pointer"
+                      >
+                        <MoreHorizontalIcon className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      side="bottom"
+                      align="end"
+                      className="rounded-xs w-fit space-y-1"
                     >
-                      <MoreHorizontalIcon className="size-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    side="bottom"
-                    align="end"
-                    className="rounded-xs w-fit space-y-1"
-                  >
-                    <DropdownMenuItem className="cursor-pointer">
-                      <EditIcon className="size-3.5" />
-                      <span className="text-sm text-muted-foreground shrink-0">Edit</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem className="cursor-pointer" variant="destructive">
-                      <TrashIcon className="size-3.5" />
-                      <span className="text-sm shrink-0">Delete</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      <DropdownMenuItem 
+                        className="cursor-pointer"
+                        onSelect={() => {
+                          setSelectedKey(key);
+                          setAddName(key.name);
+                          setAddPrivateKey(key.private_key);
+                          setAddPublicKey(key.public_key);
+                          setAddCertificate(key.certificate || "");
+                          setSheetMode("view");
+                          setOpenAddKey(true);
+                        }}
+                      >
+                        <EyeIcon className="size-3.5" />
+                        <span className="text-sm text-muted-foreground shrink-0">View Details</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
-      {/* -------------------- ADD KEY -------------------- */}
 
-      <Sheet open={openAddKey} onOpenChange={setOpenAddKey}>
-        <SheetContent className="rounded-l-xl overflow-hidden">
+      {/* -------------------- ADD / VIEW KEY -------------------- */}
+      <Sheet open={openAddKey} onOpenChange={(open) => !loading && (!open && clearAddStates() || setOpenAddKey(open))}>
+        <SheetContent 
+          className="rounded-l-xl overflow-hidden flex flex-col h-full"
+          onPointerDownOutside={(e) => loading && e.preventDefault()}
+          onEscapeKeyDown={(e) => loading && e.preventDefault()}
+        >
           <SheetHeader className="bg-muted">
-            <SheetTitle>Add Key</SheetTitle>
+            <SheetTitle>
+              {sheetMode === "add" ? "Add Key" : "View Key Details"}
+            </SheetTitle>
             <SheetDescription>
-              Import an existing SSH key pair.
+              {sheetMode === "add" ? "Import an existing SSH key pair." : "Secure information for this SSH key pair."}
             </SheetDescription>
           </SheetHeader>
-          <div className="p-4">
+          <div className="p-4 flex-1 overflow-y-auto space-y-4">
             <div className="space-y-4 rounded-lg bg-muted p-4">
-              <Input placeholder="Key name" className="bg-background" />
-              <Textarea
-                placeholder="Private key"
-                className="bg-background min-h-32"
-              />
-              <Textarea
-                placeholder="Public key"
-                className="bg-background min-h-24"
-              />
-              <Textarea
-                placeholder="Certificate (optional)"
-                className="bg-background min-h-24"
-              />
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label>Key Name</Label>
+                  {sheetMode === "view" && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={() => handleCopy(addName)}
+                    >
+                      <CopyIcon className="size-3 text-muted-foreground" />
+                    </Button>
+                  )}
+                </div>
+                <Input 
+                  placeholder="Key name" 
+                  className="bg-background" 
+                  value={addName}
+                  onChange={(e) => setAddName(e.target.value)}
+                  readOnly={sheetMode === "view"}
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label>Private Key</Label>
+                  {sheetMode === "view" && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={() => handleCopy(addPrivateKey)}
+                    >
+                      <CopyIcon className="size-3 text-muted-foreground" />
+                    </Button>
+                  )}
+                </div>
+                <Textarea
+                  placeholder="Private key (PEM format)"
+                  className="bg-background min-h-32 font-mono text-[10px]"
+                  value={addPrivateKey}
+                  onChange={(e) => setAddPrivateKey(e.target.value)}
+                  readOnly={sheetMode === "view"}
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label>Public Key</Label>
+                  {sheetMode === "view" && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={() => handleCopy(addPublicKey)}
+                    >
+                      <CopyIcon className="size-3 text-muted-foreground" />
+                    </Button>
+                  )}
+                </div>
+                <Textarea
+                  placeholder="Public key"
+                  className="bg-background min-h-24 font-mono text-[10px]"
+                  value={addPublicKey}
+                  onChange={(e) => setAddPublicKey(e.target.value)}
+                  readOnly={sheetMode === "view"}
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label>Certificate (Optional)</Label>
+                  {sheetMode === "view" && addCertificate && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={() => handleCopy(addCertificate)}
+                    >
+                      <CopyIcon className="size-3 text-muted-foreground" />
+                    </Button>
+                  )}
+                </div>
+                <Textarea
+                  placeholder="Certificate (optional)"
+                  className="bg-background min-h-24 font-mono text-[10px]"
+                  value={addCertificate}
+                  onChange={(e) => setAddCertificate(e.target.value)}
+                  readOnly={sheetMode === "view"}
+                  disabled={loading}
+                />
+              </div>
+              {sheetMode === "view" && selectedKey?.passphrase && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-primary font-medium">Passphrase Used on Generation</Label>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={() => handleCopy(selectedKey.passphrase)}
+                    >
+                      <CopyIcon className="size-3 text-primary" />
+                    </Button>
+                  </div>
+                  <Input 
+                    value={selectedKey.passphrase}
+                    readOnly
+                    className="bg-background font-mono text-xs text-primary"
+                  />
+                </div>
+              )}
             </div>
           </div>
           <SheetFooter className="bg-muted flex-row gap-2 py-2.5">
-            <Button className="flex-1">
-              <Save />
-              Save
-            </Button>
-            <Button
-              variant="destructive"
-              className="flex-1"
-              onClick={() => setOpenAddKey(false)}
-            >
-              <X />
-              Cancel
-            </Button>
+            {sheetMode !== "view" ? (
+              <>
+                <Button className="flex-1" onClick={handleAddKey} disabled={loading}>
+                  {loading ? <Loader2 className="animate-spin size-4" /> : <Save className="size-4" />}
+                  {loading ? "Saving..." : "Save"}
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={() => {
+                    setOpenAddKey(false);
+                    clearAddStates();
+                  }}
+                  disabled={loading}
+                >
+                  <X className="size-4" />
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setOpenAddKey(false);
+                  clearAddStates();
+                }}
+              >
+                Close
+              </Button>
+            )}
           </SheetFooter>
         </SheetContent>
       </Sheet>
 
       {/* -------------------- GENERATE KEY -------------------- */}
-
-      <Sheet open={openGenerateKey} onOpenChange={setOpenGenerateKey}>
-        <SheetContent className="rounded-l-xl overflow-hidden">
+      <Sheet 
+        open={openGenerateKey} 
+        onOpenChange={(open) => !loading && (!open && clearGenStates() || setOpenGenerateKey(open))}
+      >
+        <SheetContent 
+          className="rounded-l-xl overflow-hidden flex flex-col h-full"
+          onPointerDownOutside={(e) => loading && e.preventDefault()}
+          onEscapeKeyDown={(e) => loading && e.preventDefault()}
+        >
           <SheetHeader className="bg-muted">
             <SheetTitle>Generate SSH Key</SheetTitle>
             <SheetDescription>
               Generate a new SSH public/private key pair.
             </SheetDescription>
           </SheetHeader>
-          <div className="p-4 overflow-y-auto space-y-4">
+          <div className="p-4 overflow-y-auto space-y-4 flex-1">
             <div className="space-y-6 rounded-lg bg-muted p-4">
               <div className="space-y-2">
                 <Label>Key Name</Label>
                 <Input
                   placeholder="My Production Server"
                   className="bg-background"
+                  value={genName}
+                  onChange={(e) => setGenName(e.target.value)}
+                  disabled={loading}
                 />
               </div>
               <Tabs value={keyType} onValueChange={setKeyType}>
                 <div className="space-y-2">
                   <Label>Key Type</Label>
                   <TabsList className="grid w-full grid-cols-3 bg-background">
-                    <TabsTrigger value="rsa">RSA</TabsTrigger>
-                    <TabsTrigger value="ed25519">Ed25519</TabsTrigger>
-                    <TabsTrigger value="ecdsa">ECDSA</TabsTrigger>
+                    <TabsTrigger value="rsa" disabled={loading}>RSA</TabsTrigger>
+                    <TabsTrigger value="ed25519" disabled={loading}>Ed25519</TabsTrigger>
+                    <TabsTrigger value="ecdsa" disabled={loading}>ECDSA</TabsTrigger>
                   </TabsList>
                 </div>
                 <TabsContent value="rsa" className="space-y-4">
                   <p className="text-xs text-muted-foreground">
-                    Compatible with almost every SSH server.
+                    Compatible with almost every SSH server. (Sizes less than 2048 are blocked for security).
                   </p>
                   <div className="space-y-2">
                     <Label>Key Size</Label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {["1024", "2048", "4096"].map((size) => (
+                    <div className="grid grid-cols-2 gap-2">
+                      {["2048", "4096"].map((size) => (
                         <Button
                           key={size}
                           type="button"
                           variant={rsaKeySize === size ? "default" : "outline"}
                           onClick={() => setRsaKeySize(size)}
+                          disabled={loading}
                         >
                           {size}
                         </Button>
@@ -258,6 +524,7 @@ export default function KeyChain() {
                             ecdsaKeySize === size ? "default" : "outline"
                           }
                           onClick={() => setEcdsaKeySize(size)}
+                          disabled={loading}
                         >
                           {size}
                         </Button>
@@ -267,8 +534,7 @@ export default function KeyChain() {
                 </TabsContent>
                 <TabsContent value="ed25519" className="space-y-4">
                   <p className="text-xs text-muted-foreground">
-                    Recommended for modern systems. Fast, compact, and highly
-                    secure.
+                    Recommended for modern systems. Fast, compact, and highly secure.
                   </p>
                 </TabsContent>
               </Tabs>
@@ -277,17 +543,21 @@ export default function KeyChain() {
               <Label>Passphrase</Label>
               <InputGroup>
                 <InputGroupAddon>
-                  <LockIcon />
+                  <LockIcon className="size-4" />
                 </InputGroupAddon>
                 <InputGroupInput
-                  placeholder="Enter a passphrase"
+                  placeholder="Enter a passphrase (optional)"
                   className="bg-background"
                   type={showPassphrase ? "text" : "password"}
+                  value={genPassphrase}
+                  onChange={(e) => setGenPassphrase(e.target.value)}
+                  disabled={loading}
                 />
                 <InputGroupButton
                   onClick={() => setShowPassphrase(!showPassphrase)}
+                  disabled={loading}
                 >
-                  {showPassphrase ? <EyeOffIcon /> : <EyeIcon />}
+                  {showPassphrase ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
                 </InputGroupButton>
               </InputGroup>
               <p className="text-xs text-muted-foreground">
@@ -300,22 +570,31 @@ export default function KeyChain() {
                 >
                   Save passphrase
                 </Label>
-                <Switch id="save-passphrase-switch" />
+                <Switch 
+                  id="save-passphrase-switch" 
+                  checked={genSavePassphrase}
+                  onCheckedChange={setGenSavePassphrase}
+                  disabled={loading}
+                />
               </div>
             </div>
           </div>
           <SheetFooter className="bg-muted flex-row gap-2 py-2.5">
-            <Button size="sm" className="flex-1">
-              <KeyIcon />
-              Generate
+            <Button size="sm" className="flex-1" onClick={handleGenerateKey} disabled={loading}>
+              {loading ? <Loader2 className="animate-spin size-4" /> : <KeyIcon className="size-4" />}
+              {loading ? "Generating..." : "Generate"}
             </Button>
             <Button
               variant="destructive"
               size="sm"
               className="flex-1"
-              onClick={() => setOpenGenerateKey(false)}
+              onClick={() => {
+                setOpenGenerateKey(false);
+                clearGenStates();
+              }}
+              disabled={loading}
             >
-              <X />
+              <X className="size-4" />
               Cancel
             </Button>
           </SheetFooter>
