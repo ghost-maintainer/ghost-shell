@@ -15,10 +15,9 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    # Build one version at a time (sequentially) instead of all at once.
+    # All targets build in parallel (each on its own runner).
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
           - name: linux
