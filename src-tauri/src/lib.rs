@@ -117,7 +117,7 @@ fn add_key(app: AppHandle, state: State<'_, AppState>, entry: vault::KeyChainEnt
 }
 
 #[tauri::command]
-fn generate_key(
+async fn generate_key(
     app: AppHandle,
     state: State<'_, AppState>,
     name: String,
@@ -126,42 +126,57 @@ fn generate_key(
     passphrase: Option<String>,
     save_passphrase: bool,
 ) -> Result<vault::KeyChainEntry, String> {
-    let key_guard = state.master_key.lock().unwrap();
-    let key = key_guard.as_ref().ok_or("Locked")?;
-    let salt_guard = state.salt.lock().unwrap();
-    let salt = salt_guard.as_ref().ok_or("Locked")?;
-    
-    let (priv_key, pub_key) = vault::generate_ssh_key(&key_type, &size)?;
-    
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    
+    // Copy the key material out of the guards so we don't hold a non-Send
+    // MutexGuard across the .await below.
+    let (key, salt) = {
+        let key_guard = state.master_key.lock().unwrap();
+        let key = *key_guard.as_ref().ok_or("Locked")?;
+        let salt_guard = state.salt.lock().unwrap();
+        let salt = *salt_guard.as_ref().ok_or("Locked")?;
+        (key, salt)
+    };
+
     let path = state.get_vault_path(&app)?;
-    let mut vault_data = if path.exists() {
-        vault::decrypt_vault_with_key(&path, key)?
-    } else {
-        vault::VaultData::default()
-    };
-    
-    let new_id = vault_data.keys.iter().map(|k| k.id).max().unwrap_or(0) + 1;
-    
-    let entry = vault::KeyChainEntry {
-        id: new_id,
-        name,
-        key_type,
-        size,
-        private_key: priv_key,
-        public_key: pub_key,
-        passphrase: if save_passphrase { passphrase } else { None },
-        certificate: None,
-        created_at: now.clone(),
-        updated_at: now,
-    };
-    
-    vault_data.keys.push(entry.clone());
-    
-    let encrypted_bytes = vault::encrypt_vault(&vault_data, key, salt)?;
-    std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
-    
+
+    // RSA generation is CPU-bound and can take several seconds. Run the whole
+    // generate + encrypt + write on a blocking thread so the UI (and the
+    // loading spinner) stays responsive instead of freezing the main thread.
+    let entry = tauri::async_runtime::spawn_blocking(move || -> Result<vault::KeyChainEntry, String> {
+        let (priv_key, pub_key) = vault::generate_ssh_key(&key_type, &size)?;
+
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        let mut vault_data = if path.exists() {
+            vault::decrypt_vault_with_key(&path, &key)?
+        } else {
+            vault::VaultData::default()
+        };
+
+        let new_id = vault_data.keys.iter().map(|k| k.id).max().unwrap_or(0) + 1;
+
+        let entry = vault::KeyChainEntry {
+            id: new_id,
+            name,
+            key_type,
+            size,
+            private_key: priv_key,
+            public_key: pub_key,
+            passphrase: if save_passphrase { passphrase } else { None },
+            certificate: None,
+            created_at: now.clone(),
+            updated_at: now,
+        };
+
+        vault_data.keys.push(entry.clone());
+
+        let encrypted_bytes = vault::encrypt_vault(&vault_data, &key, &salt)?;
+        std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+
+        Ok(entry)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
     Ok(entry)
 }
 

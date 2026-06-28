@@ -24,79 +24,131 @@ COMPANY_NAME="Ghost Compiler"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[1;34m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo -e "${BLUE}Analyzing repository...${NC}"
 
-# Verify git repository
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
     echo "Not a Git repository."
     exit 1
 }
 
-# Stage everything except ignored files (e.g. .env)
 git add -A
 
-# Nothing to commit
 if git diff --cached --quiet; then
     echo -e "${GREEN}Nothing to commit.${NC}"
     exit 0
 fi
 
 #########################################
-# Collect changes
+# High-level change summary (no file names)
 #########################################
 
-if git rev-parse --verify HEAD >/dev/null 2>&1; then
-    DIFF=$(git diff --cached --stat)
-    PATCH=$(git diff --cached --unified=1)
-else
-    DIFF=$(git diff --cached --stat)
-    PATCH=$(git diff --cached --unified=1 --no-index /dev/null . || true)
+CHANGED_FILES=$(git diff --cached --name-only)
+FILE_COUNT=$(printf '%s\n' "$CHANGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+INSERTIONS=$(git diff --cached --numstat | awk '{ ins += ($1 == "-" ? 0 : $1) } END { print ins + 0 }')
+DELETIONS=$(git diff --cached --numstat | awk '{ del += ($2 == "-" ? 0 : $2) } END { print del + 0 }')
+
+FRONTEND=0
+BACKEND=0
+CI=0
+DOCS=0
+CONFIG=0
+OTHER=0
+
+while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    case "$file" in
+        src/*|index.html|vite.config.*)
+            FRONTEND=$((FRONTEND + 1))
+            ;;
+        src-tauri/*)
+            BACKEND=$((BACKEND + 1))
+            ;;
+        .github/*)
+            CI=$((CI + 1))
+            ;;
+        *.md|LICENSE)
+            DOCS=$((DOCS + 1))
+            ;;
+        package.json|package-lock.json|src-tauri/Cargo.toml|src-tauri/Cargo.lock|src-tauri/tauri.conf.json)
+            CONFIG=$((CONFIG + 1))
+            ;;
+        *)
+            OTHER=$((OTHER + 1))
+            ;;
+    esac
+done <<< "$CHANGED_FILES"
+
+AREAS=()
+[ "$FRONTEND" -gt 0 ] && AREAS+=("frontend: ${FRONTEND} files")
+[ "$BACKEND" -gt 0 ] && AREAS+=("backend: ${BACKEND} files")
+[ "$CI" -gt 0 ] && AREAS+=("ci: ${CI} files")
+[ "$DOCS" -gt 0 ] && AREAS+=("docs: ${DOCS} files")
+[ "$CONFIG" -gt 0 ] && AREAS+=("config: ${CONFIG} files")
+[ "$OTHER" -gt 0 ] && AREAS+=("other: ${OTHER} files")
+
+CHANGE_SUMMARY=$(printf '%s\n' "${AREAS[@]}")
+if [ -z "$CHANGE_SUMMARY" ]; then
+    CHANGE_SUMMARY="general project files"
 fi
 
-# Large diffs can cause API failures; keep the prompt small.
-MAX_PATCH_CHARS=6000
-if [ "${#PATCH}" -gt "$MAX_PATCH_CHARS" ]; then
-    PATCH="${PATCH:0:$MAX_PATCH_CHARS}
+generate_local_message() {
+    if [ "$CI" -gt 0 ] && [ "$((FRONTEND + BACKEND + DOCS + CONFIG + OTHER))" -eq 0 ]; then
+        echo "ci: pipeline update"
+    elif [ "$DOCS" -gt 0 ] && [ "$((FRONTEND + BACKEND + CI + CONFIG + OTHER))" -eq 0 ]; then
+        echo "docs: project documentation update"
+    elif [ "$CONFIG" -gt 0 ] && [ "$((FRONTEND + BACKEND + CI + DOCS + OTHER))" -eq 0 ]; then
+        echo "chore: project configuration update"
+    elif [ "$FRONTEND" -gt 0 ] && [ "$BACKEND" -gt 0 ]; then
+        echo "feat: application update"
+    elif [ "$FRONTEND" -gt 0 ]; then
+        echo "feat: client update"
+    elif [ "$BACKEND" -gt 0 ]; then
+        echo "feat: backend update"
+    else
+        echo "chore: project update"
+    fi
+}
 
-...(diff truncated)..."
-fi
+is_specific_message() {
+    local message="$1"
+    printf '%s' "$message" | grep -Eiq \
+        '\b(add|added|adding|remove|removed|implement|introduce|dropdown|menu|vault|keychain|hosts|login|button|component|page|skill|tauri|react|rust|ui|api)\b'
+}
+
+LOCAL_MESSAGE=$(generate_local_message)
 
 #########################################
-# Prompt
+# Prompt — project-level only, never itemize changes
 #########################################
 
 PROMPT=$(cat <<EOF
-You are a senior software engineer at $COMPANY_NAME.
+You are a senior software engineer at $COMPANY_NAME working on Ghost Shell.
 
-Generate ONE Conventional Commit message.
+Write ONE generic Conventional Commit message for a project update.
+
+Context (areas touched, not specific files):
+- ${FILE_COUNT} files changed (+${INSERTIONS}/-${DELETIONS} lines)
+- ${CHANGE_SUMMARY//$'\n'/, }
 
 Rules:
+- Maximum 6 words after the type prefix.
+- No body. No quotes. No explanation.
+- Lowercase type: feat, fix, refactor, docs, style, chore, perf, test, ci, build
+- Describe the overall project update only.
+- Do NOT name files, components, screens, libraries, or individual features.
+- Do NOT use words like add, remove, implement, introduce, improve, or fix <thing>.
+- Prefer broad phrases like "application update", "project update", "client update", "backend update", "pipeline update".
 
-- Maximum 8 words.
-- No body.
-- No explanation.
-- Lowercase type.
-- Use:
-  feat
-  fix
-  refactor
-  docs
-  style
-  chore
-  perf
-  test
-  ci
-  build
+Good examples:
+- feat: application update
+- chore: project maintenance
+- ci: pipeline update
+- docs: project documentation update
 
 Return ONLY the commit message.
-
-Repository changes:
-
-$DIFF
-
-$PATCH
 EOF
 )
 
@@ -119,58 +171,39 @@ HTTP_CODE=$(
             --arg prompt "$PROMPT" \
             '{
               model: $model,
-              temperature: 0.2,
-              max_tokens: 25,
+              temperature: 0.1,
+              max_tokens: 20,
               messages: [{ role: "user", content: $prompt }]
             }')"
 )
 
 COMMIT_MESSAGE=$(jq -r '.choices[0].message.content // empty' "$API_RESPONSE_FILE" 2>/dev/null || true)
-
-COMMIT_MESSAGE=$(echo "$COMMIT_MESSAGE" \
-    | head -n1 \
-    | sed 's/^"//;s/"$//' \
-    | xargs)
+COMMIT_MESSAGE=$(echo "$COMMIT_MESSAGE" | head -n1 | sed 's/^"//;s/"$//' | xargs)
 
 #########################################
-# Fallback
+# Fallback / sanitize
 #########################################
 
 if [ -z "$COMMIT_MESSAGE" ] || [ "$COMMIT_MESSAGE" = "null" ]; then
     API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
-    echo -e "${RED}Commit message API failed (HTTP ${HTTP_CODE}).${NC}" >&2
-    if [ -n "$API_ERROR" ]; then
-        echo -e "${RED}Reason: ${API_ERROR}${NC}" >&2
-    elif [ "$HTTP_CODE" != "200" ]; then
-        echo -e "${RED}Response: $(head -c 300 "$API_RESPONSE_FILE")${NC}" >&2
-    fi
-    echo -e "${RED}Using fallback message. Check API_KEY/API_MODEL in .env.${NC}" >&2
-    COMMIT_MESSAGE="chore: update project $(date '+%Y-%m-%d %H:%M')"
+    echo -e "${YELLOW}API unavailable (HTTP ${HTTP_CODE}). Using local message.${NC}" >&2
+    [ -n "$API_ERROR" ] && echo -e "${YELLOW}Reason: ${API_ERROR}${NC}" >&2
+    COMMIT_MESSAGE="$LOCAL_MESSAGE"
+elif is_specific_message "$COMMIT_MESSAGE"; then
+    echo -e "${YELLOW}API message too specific — using local message instead.${NC}" >&2
+    COMMIT_MESSAGE="$LOCAL_MESSAGE"
 fi
 
 echo
 echo -e "${GREEN}Commit:${NC} $COMMIT_MESSAGE"
 echo
 
-#########################################
-# Commit
-#########################################
-
 git commit -m "$COMMIT_MESSAGE"
 
-#########################################
-# Ensure main branch
-#########################################
-
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
 if [ "$CURRENT_BRANCH" != "main" ]; then
     git branch -M main
 fi
-
-#########################################
-# Detect remote
-#########################################
 
 if ! git remote get-url origin >/dev/null 2>&1; then
     echo
@@ -181,13 +214,8 @@ if ! git remote get-url origin >/dev/null 2>&1; then
     exit 1
 fi
 
-#########################################
-# Push
-#########################################
-
 echo
 echo -e "${BLUE}Pushing to origin/main...${NC}"
-
 git push -u origin main
 
 echo

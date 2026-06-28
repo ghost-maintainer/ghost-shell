@@ -15,6 +15,8 @@ import {
   SheetTitle,
   SheetFooter,
 } from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -38,6 +40,8 @@ import {
   UserIcon,
   Save,
   X,
+  KeyIcon,
+  Loader2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import React from "react";
@@ -52,19 +56,38 @@ import { invoke } from "@tauri-apps/api/core";
 
 export default function Hosts() {
   const [hosts, setHosts] = React.useState([]);
+  const [keys, setKeys] = React.useState([]);
   const [searchQuery, setSearchQuery] = React.useState("");
   
   const [showPassword, setShowPassword] = React.useState(false);
   const [openAddHosts, setOpenAddHosts] = React.useState(false);
+  const [openGenerateKey, setOpenGenerateKey] = React.useState(false);
 
   // Form & Sheet Mode States
   const [sheetMode, setSheetMode] = React.useState("add"); // "add" | "edit"
   const [selectedHost, setSelectedHost] = React.useState(null);
+  const [hostToDelete, setHostToDelete] = React.useState(null);
+  const [deleting, setDeleting] = React.useState(false);
+  
   const [hostName, setHostName] = React.useState("");
   const [hostAddress, setHostAddress] = React.useState("");
   const [hostPort, setHostPort] = React.useState("22");
   const [hostUsername, setHostUsername] = React.useState("");
   const [hostPassword, setHostPassword] = React.useState("");
+  const [hostKeyId, setHostKeyId] = React.useState(null);
+  
+  const [keyDropdownOpen, setKeyDropdownOpen] = React.useState(false);
+
+  // Generate Key Form States
+  const [genName, setGenName] = React.useState("");
+  const [genPassphrase, setGenPassphrase] = React.useState("");
+  const [genSavePassphrase, setGenSavePassphrase] = React.useState(false);
+  const [showGenPassphrase, setShowGenPassphrase] = React.useState(false);
+  const [keyType, setKeyType] = React.useState("rsa");
+  const [rsaKeySize, setRsaKeySize] = React.useState("4096");
+  const [ecdsaKeySize, setEcdsaKeySize] = React.useState("521");
+
+  const [loading, setLoading] = React.useState(false);
 
   const handleShowPassword = () => {
     setShowPassword(!showPassword);
@@ -79,8 +102,18 @@ export default function Hosts() {
     }
   };
 
+  const loadKeys = async () => {
+    try {
+      const list = await invoke("get_keys");
+      setKeys(list || []);
+    } catch (err) {
+      console.error("Failed to load keys:", err);
+    }
+  };
+
   React.useEffect(() => {
     loadHosts();
+    loadKeys();
   }, []);
 
   const handleAddHost = async () => {
@@ -89,6 +122,8 @@ export default function Hosts() {
       return;
     }
 
+    setLoading(true);
+
     const entry = {
       id: sheetMode === "edit" ? selectedHost.id : 0,
       name: hostName || hostAddress,
@@ -96,7 +131,7 @@ export default function Hosts() {
       port: parseInt(hostPort) || 22,
       username: hostUsername,
       password: hostPassword || null,
-      key_id: null,
+      key_id: hostKeyId,
       created_at: sheetMode === "edit" ? selectedHost.created_at : new Date().toISOString().split("T")[0],
       updated_at: new Date().toISOString().split("T")[0],
       os: "Linux",
@@ -109,9 +144,52 @@ export default function Hosts() {
       loadHosts();
     } catch (err) {
       alert("Failed to save host: " + err);
+    } finally {
+      setLoading(false);
     }
   };
 
+  const handleGenerateKey = async () => {
+    if (!genName) {
+      alert("Key name is required.");
+      return;
+    }
+    
+    const size = keyType === "rsa" ? rsaKeySize : keyType === "ecdsa" ? ecdsaKeySize : "";
+    setLoading(true);
+    try {
+      const newKey = await invoke("generate_key", {
+        name: genName,
+        keyType: keyType,
+        size: size,
+        passphrase: genPassphrase || null,
+        savePassphrase: genSavePassphrase,
+      });
+      setOpenGenerateKey(false);
+      clearGenStates();
+      await loadKeys();
+      // Auto-select the newly generated key
+      setHostKeyId(newKey.id);
+    } catch (err) {
+      alert("Failed to generate key: " + err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteHost = async () => {
+    if (!hostToDelete) return;
+    setDeleting(true);
+    try {
+      await invoke("delete_host", { id: hostToDelete.id });
+      setHostToDelete(null);
+      loadHosts();
+    } catch (err) {
+      alert("Failed to delete host: " + err);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const clearForm = () => {
     setHostName("");
@@ -119,7 +197,14 @@ export default function Hosts() {
     setHostPort("22");
     setHostUsername("");
     setHostPassword("");
+    setHostKeyId(null);
     setSelectedHost(null);
+  };
+
+  const clearGenStates = () => {
+    setGenName("");
+    setGenPassphrase("");
+    setGenSavePassphrase(false);
   };
 
   const filteredHosts = hosts.filter((h) =>
@@ -172,10 +257,10 @@ export default function Hosts() {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filteredHosts.map((host, index) => (
+            {filteredHosts.map((host) => (
               <div
                 className="border bg-sidebar rounded-lg px-3 py-2 flex flex-row gap-2"
-                key={index}
+                key={host.id}
               >
                 <div className="size-10 bg-primary/30 rounded-md flex items-center justify-center shrink-0 border border-primary/50">
                   <ServerCogIcon className="size-5 text-primary-foreground" />
@@ -217,12 +302,21 @@ export default function Hosts() {
                           setHostPort(host.port.toString());
                           setHostUsername(host.username);
                           setHostPassword(host.password || "");
+                          setHostKeyId(host.key_id || null);
                           setSheetMode("edit");
                           setOpenAddHosts(true);
                         }}
                       >
                         <EditIcon className="size-3.5" />
                         <span className="text-sm text-muted-foreground shrink-0">Edit</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="cursor-pointer text-destructive focus:text-destructive"
+                        onSelect={() => setHostToDelete(host)}
+                      >
+                        <TrashIcon className="size-3.5 text-destructive" />
+                        <span className="text-sm text-destructive shrink-0">Delete</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -233,8 +327,13 @@ export default function Hosts() {
         )}
       </div>
 
-      <Sheet open={openAddHosts} onOpenChange={(open) => !open && clearForm() || setOpenAddHosts(open)}>
-        <SheetContent className="rounded-l-xl overflow-hidden flex flex-col h-full">
+      {/* -------------------- ADD / EDIT HOST SHEET -------------------- */}
+      <Sheet open={openAddHosts} onOpenChange={(open) => !loading && (!open && clearForm() || setOpenAddHosts(open))}>
+        <SheetContent 
+          className="rounded-l-xl overflow-hidden flex flex-col h-full"
+          onPointerDownOutside={(e) => loading && e.preventDefault()}
+          onEscapeKeyDown={(e) => loading && e.preventDefault()}
+        >
           <SheetHeader className="bg-muted">
             <SheetTitle>
               {sheetMode === "add" ? "Add Hosts" : "Edit Host"}
@@ -243,7 +342,7 @@ export default function Hosts() {
               {sheetMode === "add" ? "Manage Hosts" : "Modify host connection details."}
             </SheetDescription>
           </SheetHeader>
-          <div className="flex-1 overflow-y-auto flex flex-col gap-2 py-2 px-3">
+          <div className="flex-1 overflow-y-auto flex flex-col gap-3 py-2 px-3">
             <div className="rounded-lg bg-muted p-4 space-y-3">
               <Label>Host Name</Label>
               <Input 
@@ -251,6 +350,7 @@ export default function Hosts() {
                 className="bg-background"
                 value={hostName}
                 onChange={(e) => setHostName(e.target.value)}
+                disabled={loading}
               />
             </div>
             
@@ -265,6 +365,7 @@ export default function Hosts() {
                   className="bg-background"
                   value={hostAddress}
                   onChange={(e) => setHostAddress(e.target.value)}
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -282,13 +383,14 @@ export default function Hosts() {
                     type="number"
                     value={hostPort}
                     onChange={(e) => setHostPort(e.target.value)}
+                    disabled={loading}
                   />
                 </div>
               </div>
 
               <div className="flex flex-col gap-3">
                 <Label>Credentials</Label>
-                <div className="flex flex-col space-y-4">
+                <div className="flex flex-col space-y-3">
                   <InputGroup className="bg-background">
                     <InputGroupAddon>
                       <UserIcon />
@@ -297,6 +399,7 @@ export default function Hosts() {
                       placeholder="Username" 
                       value={hostUsername}
                       onChange={(e) => setHostUsername(e.target.value)}
+                      disabled={loading}
                     />
                   </InputGroup>
                   <InputGroup className="bg-background">
@@ -308,8 +411,9 @@ export default function Hosts() {
                       type={showPassword ? "text" : "password"}
                       value={hostPassword}
                       onChange={(e) => setHostPassword(e.target.value)}
+                      disabled={loading}
                     />
-                    <InputGroupButton type="button" onClick={handleShowPassword}>
+                    <InputGroupButton type="button" onClick={handleShowPassword} disabled={loading}>
                       {showPassword ? (
                         <EyeIcon className="size-4" />
                       ) : (
@@ -317,14 +421,83 @@ export default function Hosts() {
                       )}
                     </InputGroupButton>
                   </InputGroup>
+
+                  {/* Focus-triggered SSH Key Selector */}
+                  <div className="flex flex-col gap-1.5 relative">
+                    <Label className="text-xs text-muted-foreground">SSH Key Pair (Optional)</Label>
+                    <Input
+                      placeholder={keys.length === 0 ? "No keys available (Click Create a Key)" : "Select key pair..."}
+                      value={keys.find(k => k.id === hostKeyId)?.name || ""}
+                      onFocus={() => setKeyDropdownOpen(true)}
+                      onBlur={() => {
+                        // Small delay to allow click events to fire before blurring
+                        setTimeout(() => setKeyDropdownOpen(false), 200);
+                      }}
+                      readOnly
+                      disabled={loading}
+                      className="bg-background cursor-pointer text-xs"
+                    />
+                    {keyDropdownOpen && (
+                      <div className="absolute top-[56px] left-0 right-0 z-50 border bg-popover text-popover-foreground rounded-md shadow-md max-h-48 overflow-y-auto p-1 space-y-1">
+                        {keys.length > 0 && (
+                          <div 
+                            className="px-2 py-1 text-[10px] font-semibold text-muted-foreground border-b mb-1"
+                            onMouseDown={(e) => e.preventDefault()}
+                          >
+                            Available Keychains
+                          </div>
+                        )}
+                        {keys.map((k) => (
+                          <div
+                            key={k.id}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setHostKeyId(k.id);
+                              setKeyDropdownOpen(false);
+                            }}
+                            className={`px-2 py-1 text-xs rounded-sm cursor-pointer flex items-center justify-between ${
+                              hostKeyId === k.id ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent hover:text-accent-foreground text-foreground"
+                            }`}
+                          >
+                            <span>{k.name}</span>
+                            <span className="opacity-70 uppercase text-[9px]">({k.type})</span>
+                          </div>
+                        ))}
+                        {hostKeyId && (
+                          <div
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setHostKeyId(null);
+                              setKeyDropdownOpen(false);
+                            }}
+                            className="px-2 py-1 text-xs rounded-sm text-destructive hover:bg-destructive/10 cursor-pointer font-medium"
+                          >
+                            None (Clear key)
+                          </div>
+                        )}
+                        <div
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setKeyDropdownOpen(false);
+                            setOpenGenerateKey(true);
+                          }}
+                          className="px-2 py-1 text-xs rounded-sm text-primary hover:bg-primary/10 cursor-pointer font-bold border-t flex items-center gap-1 mt-1"
+                        >
+                          <PlusIcon className="size-3.5" />
+                          Create a Key
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                 </div>
               </div>
             </div>
           </div>
           <SheetFooter className="bg-muted flex-row gap-2 py-2.5 px-3">
-            <Button className="flex-1" onClick={handleAddHost}>
-              <Save />
-              Save Host
+            <Button className="flex-1" onClick={handleAddHost} disabled={loading}>
+              {loading ? <Loader2 className="animate-spin size-4" /> : <Save className="size-4" />}
+              {loading ? "Saving Host..." : "Save Host"}
             </Button>
             <Button
               variant="destructive"
@@ -333,6 +506,7 @@ export default function Hosts() {
                 setOpenAddHosts(false);
                 clearForm();
               }}
+              disabled={loading}
             >
               <X />
               Cancel
@@ -340,6 +514,198 @@ export default function Hosts() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* -------------------- DYNAMIC GENERATE KEY SHEET -------------------- */}
+      <Sheet 
+        open={openGenerateKey} 
+        onOpenChange={(open) => !loading && (!open && clearGenStates() || setOpenGenerateKey(open))}
+      >
+        <SheetContent 
+          className="rounded-l-xl overflow-hidden flex flex-col h-full z-[100]"
+          onPointerDownOutside={(e) => loading && e.preventDefault()}
+          onEscapeKeyDown={(e) => loading && e.preventDefault()}
+        >
+          <SheetHeader className="bg-muted">
+            <SheetTitle>Generate SSH Key</SheetTitle>
+            <SheetDescription>
+              Generate a new SSH public/private key pair to link to this host.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="p-4 overflow-y-auto space-y-4 flex-1">
+            <div className="space-y-6 rounded-lg bg-muted p-4">
+              <div className="space-y-2">
+                <Label>Key Name</Label>
+                <Input
+                  placeholder="My Production Server"
+                  className="bg-background"
+                  value={genName}
+                  onChange={(e) => setGenName(e.target.value)}
+                  disabled={loading}
+                />
+              </div>
+              <Tabs value={keyType} onValueChange={setKeyType}>
+                <div className="space-y-2">
+                  <Label>Key Type</Label>
+                  <TabsList className="grid w-full grid-cols-3 bg-background">
+                    <TabsTrigger value="rsa" disabled={loading}>RSA</TabsTrigger>
+                    <TabsTrigger value="ed25519" disabled={loading}>Ed25519</TabsTrigger>
+                    <TabsTrigger value="ecdsa" disabled={loading}>ECDSA</TabsTrigger>
+                  </TabsList>
+                </div>
+                <TabsContent value="rsa" className="space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Compatible with almost every SSH server. (Sizes less than 2048 are blocked for security).
+                  </p>
+                  <div className="space-y-2">
+                    <Label>Key Size</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {["2048", "4096"].map((size) => (
+                        <Button
+                          key={size}
+                          type="button"
+                          variant={rsaKeySize === size ? "default" : "outline"}
+                          onClick={() => setRsaKeySize(size)}
+                          disabled={loading}
+                        >
+                          {size}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </TabsContent>
+                <TabsContent value="ecdsa" className="space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Faster than RSA with strong security.
+                  </p>
+                  <div className="space-y-2">
+                    <Label>Curve</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {["256", "384", "521"].map((size) => (
+                        <Button
+                          key={size}
+                          type="button"
+                          variant={
+                            ecdsaKeySize === size ? "default" : "outline"
+                          }
+                          onClick={() => setEcdsaKeySize(size)}
+                          disabled={loading}
+                        >
+                          {size}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </TabsContent>
+                <TabsContent value="ed25519" className="space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Recommended for modern systems. Fast, compact, and highly secure.
+                  </p>
+                </TabsContent>
+              </Tabs>
+            </div>
+            <div className="flex flex-col gap-2 bg-muted p-4 rounded-lg">
+              <Label>Passphrase</Label>
+              <InputGroup>
+                <InputGroupAddon>
+                  <LockIcon className="size-4" />
+                </InputGroupAddon>
+                <InputGroupInput
+                  placeholder="Enter a passphrase (optional)"
+                  className="bg-background"
+                  type={showGenPassphrase ? "text" : "password"}
+                  value={genPassphrase}
+                  onChange={(e) => setGenPassphrase(e.target.value)}
+                  disabled={loading}
+                />
+                <InputGroupButton
+                  onClick={() => setShowGenPassphrase(!showGenPassphrase)}
+                  disabled={loading}
+                >
+                  {showGenPassphrase ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+                </InputGroupButton>
+              </InputGroup>
+              <p className="text-xs text-muted-foreground">
+                Enter a passphrase to protect your private key.
+              </p>
+              <div className="flex flex-row justify-between gap-2 mt-2">
+                <Label
+                  className="text-sm text-muted-foreground"
+                  htmlFor="save-passphrase-switch"
+                >
+                  Save passphrase
+                </Label>
+                <Switch 
+                  id="save-passphrase-switch" 
+                  checked={genSavePassphrase}
+                  onCheckedChange={setGenSavePassphrase}
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          </div>
+          <SheetFooter className="bg-muted flex-row gap-2 py-2.5">
+            <Button size="sm" className="flex-1" onClick={handleGenerateKey} disabled={loading}>
+              {loading ? <Loader2 className="animate-spin size-4 animate-duration-1000" /> : <KeyIcon className="size-4" />}
+              {loading ? "Generating..." : "Generate"}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="flex-1"
+              onClick={() => {
+                setOpenGenerateKey(false);
+                clearGenStates();
+              }}
+              disabled={loading}
+            >
+              <X className="size-4" />
+              Cancel
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* -------------------- DELETE CONFIRMATION -------------------- */}
+      {hostToDelete && (
+        <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-sm rounded-lg border bg-background p-5 shadow-lg space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="size-10 bg-destructive/20 rounded-md flex items-center justify-center shrink-0 border border-destructive/40">
+                <TrashIcon className="size-5 text-destructive" />
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-sm font-semibold text-foreground">Delete host</p>
+                <p className="text-xs text-muted-foreground">
+                  This will permanently remove "{hostToDelete.name}". This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-row gap-2">
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={handleDeleteHost}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <Loader2 className="animate-spin size-4" />
+                ) : (
+                  <TrashIcon className="size-4" />
+                )}
+                {deleting ? "Deleting..." : "Delete"}
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setHostToDelete(null)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
