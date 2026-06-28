@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useLocation, useNavigate } from "react-router-dom";
+import { clearSessionHistory, pruneExpiredSessions } from "@/lib/session-history";
 
 const SecurityContext = createContext({
   unlocked: false,
@@ -13,25 +14,37 @@ const SecurityContext = createContext({
 export function SecurityProvider({ children }) {
   const [unlocked, setUnlocked] = useState(false);
   const [loading, setLoading] = useState(true);
-  const location = useLocation();
   const navigate = useNavigate();
-
+  const location = useLocation();
   useEffect(() => {
-    async function checkLockStatus() {
+    const wasOnLogin = location.pathname === "/dashboard/login";
+    let cancelled = false;
+
+    async function bootstrap() {
       try {
-        const isUnlocked = await invoke("is_unlocked");
-        setUnlocked(isUnlocked);
-        if (!isUnlocked && location.pathname !== "/dashboard/login") {
-          navigate("/dashboard/login");
+        pruneExpiredSessions();
+        const autoUnlocked = await invoke("try_auto_unlock");
+        if (cancelled) return;
+
+        if (autoUnlocked) {
+          setUnlocked(true);
+          if (wasOnLogin) {
+            navigate("/dashboard/hosts", { replace: true });
+          }
         }
       } catch (err) {
-        console.error("Failed to check lock status:", err);
+        console.error("Failed to restore secure session:", err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
-    checkLockStatus();
-  }, [location.pathname, navigate]);
+
+    bootstrap();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const unlock = async (passphrase) => {
     try {
@@ -61,6 +74,8 @@ export function SecurityProvider({ children }) {
   const wipeData = async () => {
     try {
       await invoke("wipe_data");
+      clearSessionHistory();
+      sessionStorage.removeItem("ghost-shell-terminal-sessions");
       setUnlocked(false);
       navigate("/dashboard/login");
     } catch (err) {
@@ -80,7 +95,9 @@ export function SecurityProvider({ children }) {
     return (
       <div className="flex flex-col items-center justify-center h-svh bg-background space-y-4">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        <p className="text-sm text-muted-foreground animate-pulse">Unlocking secure session...</p>
+        <p className="text-sm text-muted-foreground animate-pulse">
+          Starting secure session...
+        </p>
       </div>
     );
   }

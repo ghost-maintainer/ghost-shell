@@ -5,6 +5,33 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ghost Shell</title>
+    <script>
+      (function () {
+        var key = "ghost-shell-theme";
+        var theme = localStorage.getItem(key) || "system";
+        var dark =
+          theme === "dark" ||
+          (theme === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        var root = document.documentElement;
+        root.classList.add(dark ? "dark" : "light");
+        root.style.colorScheme = dark ? "dark" : "light";
+      })();
+    </script>
+    <style>
+      html.dark {
+        color-scheme: dark;
+        background-color: #141414;
+      }
+      html.light {
+        color-scheme: light;
+        background-color: #ffffff;
+      }
+      body {
+        margin: 0;
+        background-color: inherit;
+      }
+    </style>
   </head>
 
   <body>

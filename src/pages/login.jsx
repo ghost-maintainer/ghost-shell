@@ -1,6 +1,12 @@
 import logo from "@/assets/app-icon.png";
 import { Button } from "@/components/ui/button";
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { invoke } from "@tauri-apps/api/core";
 import { EyeIcon, EyeOffIcon, LockIcon } from "lucide-react";
 import React from "react";
 import { useSecurity } from "../provider/security-provider";
@@ -10,8 +16,15 @@ export default function Login() {
   const [showPassphrase, setShowPassphrase] = React.useState(false);
   const [error, setError] = React.useState("");
   const [isLoggingIn, setIsLoggingIn] = React.useState(false);
+  const [isFirstSetup, setIsFirstSetup] = React.useState(null);
 
   const { unlock } = useSecurity();
+
+  React.useEffect(() => {
+    invoke("vault_exists")
+      .then((exists) => setIsFirstSetup(!exists))
+      .catch(() => setIsFirstSetup(false));
+  }, []);
 
   const handleShowPassphrase = () => {
     setShowPassphrase(!showPassphrase);
@@ -43,6 +56,13 @@ export default function Login() {
     }
   };
 
+  const title = isFirstSetup
+    ? "Create your master passphrase"
+    : "Enter your passphrase";
+  const subtitle = isFirstSetup
+    ? "This is only required once. Ghost Shell will remember it securely using your system keychain."
+    : "Your session was locked. Enter your passphrase to continue.";
+
   return (
     <div
       className="flex flex-col items-center justify-center h-svh space-y-3"
@@ -50,11 +70,9 @@ export default function Login() {
     >
       <img src={logo} alt="logo" className="size-18" data-tauri-drag-region />
       <div className="text-center space-y-1">
-        <p className="text-lg text-foreground leading-none">
-          Enter your passphrase to login
-        </p>
-        <p className="text-xs text-muted-foreground leading-none">
-          Key is required to encrypt and decrypt your data.
+        <p className="text-lg text-foreground leading-none">{title}</p>
+        <p className="text-xs text-muted-foreground leading-none max-w-sm">
+          {subtitle}
         </p>
       </div>
       <form
@@ -72,6 +90,7 @@ export default function Login() {
             value={passphrase}
             onChange={(e) => setPassphrase(e.target.value)}
             disabled={isLoggingIn}
+            autoFocus
           />
           <InputGroupButton
             type="button"
@@ -95,7 +114,11 @@ export default function Login() {
             type="submit"
             disabled={isLoggingIn}
           >
-            {isLoggingIn ? "Verifying..." : "Login / Setup"}
+            {isLoggingIn
+              ? "Verifying..."
+              : isFirstSetup
+                ? "Create & Continue"
+                : "Unlock"}
           </Button>
         </div>
       </form>

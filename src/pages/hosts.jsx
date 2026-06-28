@@ -53,8 +53,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { invoke } from "@tauri-apps/api/core";
+import { useTerminals } from "@/hooks/use-terminals";
 
 export default function Hosts() {
+  const { openSession } = useTerminals();
   const [hosts, setHosts] = React.useState([]);
   const [keys, setKeys] = React.useState([]);
   const [searchQuery, setSearchQuery] = React.useState("");
@@ -289,7 +291,10 @@ export default function Hosts() {
                       align="end"
                       className="rounded-xs w-fit px-2 space-y-1"
                     >
-                      <DropdownMenuItem className="cursor-pointer">
+                      <DropdownMenuItem
+                        className="cursor-pointer"
+                        onSelect={() => openSession(host)}
+                      >
                         <TerminalIcon className="size-3.5" />
                         <span className="text-sm text-muted-foreground shrink-0">Connect to Host</span>
                       </DropdownMenuItem>

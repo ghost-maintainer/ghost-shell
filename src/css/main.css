@@ -26,4 +26,11 @@
     -moz-appearance: textfield;
     appearance: textfield;
   }
+
+  .xterm,
+  .xterm-viewport,
+  .xterm-screen {
+    height: 100% !important;
+    width: 100% !important;
+  }
 }

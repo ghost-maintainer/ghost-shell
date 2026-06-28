@@ -30,10 +30,12 @@ import {
 } from "@/components/ui/tooltip";
 import { openWebsite } from "@/lib/utils";
 import { env } from "@/config/env";
+import { useTerminals } from "@/hooks/use-terminals";
 
 export default function DashboardLayout({ children, sidebar = true }) {
   const { theme, setTheme } = useTheme();
   const { lock, wipeData } = useSecurity();
+  const { sessions, activeId, setActive, closeSession } = useTerminals();
   const [showWipeConfirm, setShowWipeConfirm] = React.useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -72,6 +74,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
     },
   ]
   const handleNavigate = (href) => {
+    setActive(null);
     navigate(href);
   };
   return (
@@ -85,22 +88,57 @@ export default function DashboardLayout({ children, sidebar = true }) {
           data-tauri-drag-region
         >
           <div
-            className="flex-1 mt-auto flex flex-row gap-2"
+            className="flex-1 mt-auto flex flex-row gap-2 overflow-x-auto min-w-0"
             data-tauri-drag-region
           >
             {TABS_ITEMS.map((item, index) => {
               return (
                 <button
                   key={index}
-                  className="text-xs px-2 py-2 bg-card leading-none rounded-t-sm flex flex-row items-center justify-center gap-1 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground cursor-pointer border-primary dark:border-muted  border data-[active=false]:border-b-background dark:data-[active=false]:border-b-sidebar pb-1.5"
+                  className="text-xs px-2 py-2 bg-card leading-none rounded-t-sm flex flex-row items-center justify-center gap-1 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground cursor-pointer border-primary dark:border-muted  border data-[active=false]:border-b-background dark:data-[active=false]:border-b-sidebar pb-1.5 shrink-0"
                   onClick={() => handleNavigate(item.href)}
-                  data-active={location.pathname.startsWith(item.href)}
+                  data-active={
+                    !activeId && location.pathname.startsWith(item.href)
+                  }
                 >
                   <item.icon className="size-3" />
                   <span className="text-xs font-medium">{item.label}</span>
                 </button>
               );
             })}
+            {sessions.map((session) => (
+              <button
+                key={session.id}
+                className="text-xs max-w-44 px-2 py-2 bg-card leading-none rounded-t-sm flex flex-row items-center justify-center gap-1.5 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground cursor-pointer border-primary dark:border-muted border data-[active=false]:border-b-background dark:data-[active=false]:border-b-sidebar pb-1.5 shrink-0 group"
+                onClick={() => setActive(session.id)}
+                data-active={activeId === session.id}
+              >
+                <span
+                  className={`size-2 rounded-full shrink-0 ${
+                    session.status === "connected"
+                      ? "bg-green-500"
+                      : session.status === "connecting"
+                        ? "bg-yellow-400"
+                        : session.status === "error"
+                          ? "bg-red-500"
+                          : "bg-zinc-400"
+                  }`}
+                />
+                <span className="text-xs font-medium truncate">
+                  {session.title}
+                </span>
+                <span
+                  role="button"
+                  className="opacity-60 hover:opacity-100 ml-0.5"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeSession(session.id);
+                  }}
+                >
+                  ×
+                </span>
+              </button>
+            ))}
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -160,12 +198,16 @@ export default function DashboardLayout({ children, sidebar = true }) {
                 {MENU_ITEMS.map((item, index) => {
                   const active = location.pathname.startsWith(item.href);
                   return (
-                    <li
-                      key={index}
-                    >
-                      <Button variant={active ? "default" : "outline"} className="w-full rounded-xs justify-start gap-2" onClick={() => handleNavigate(item.href)}>
-                      <item.icon className="size-3.5" />
-                      <span className="text-sm font-medium">{item.label}</span>
+                    <li key={index}>
+                      <Button
+                        variant={active ? "default" : "outline"}
+                        className="w-full rounded-xs justify-start gap-2"
+                        onClick={() => handleNavigate(item.href)}
+                      >
+                        <item.icon className="size-3.5" />
+                        <span className="text-sm font-medium">
+                          {item.label}
+                        </span>
                       </Button>
                     </li>
                   );
@@ -174,7 +216,11 @@ export default function DashboardLayout({ children, sidebar = true }) {
             </div>
             <div className="p-2 flex flex-col gap-1 items-center justify-center bg-muted">
               <Button
-                variant={location.pathname.startsWith("/dashboard/export-data") ? "default" : "outline"}
+                variant={
+                  location.pathname.startsWith("/dashboard/export-data")
+                    ? "default"
+                    : "outline"
+                }
                 className="w-full rounded-xs justify-start gap-2"
                 onClick={() => handleNavigate("/dashboard/export-data")}
               >
@@ -182,7 +228,11 @@ export default function DashboardLayout({ children, sidebar = true }) {
                 <span>Export Data</span>
               </Button>
               <Button
-                variant={location.pathname.startsWith("/dashboard/import-data") ? "default" : "outline"}
+                variant={
+                  location.pathname.startsWith("/dashboard/import-data")
+                    ? "default"
+                    : "outline"
+                }
                 className="w-full rounded-xs justify-start gap-2"
                 onClick={() => handleNavigate("/dashboard/import-data")}
               >
@@ -195,9 +245,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
                 onClick={() => openWebsite(env.github)}
               >
                 <Icons.github className="text-foreground size-4" />
-                <span>
-                  Visit GitHub
-                </span>
+                <span>Visit GitHub</span>
               </Button>
               <Button
                 variant="destructive"
@@ -209,28 +257,40 @@ export default function DashboardLayout({ children, sidebar = true }) {
               </Button>
             </div>
           </aside>
-          <main className="flex-1">
+          <main id="app-main" className="flex-1 min-h-0 min-w-0">
             {children}
           </main>
         </div>
       ) : (
-        <main className="flex-1 p-3">{children}</main>
+        <main id="app-main" className="flex-1 p-3 min-h-0 min-w-0">
+          {children}
+        </main>
       )}
       {showWipeConfirm && (
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
           <div className="border bg-sidebar p-6 rounded-xl max-w-md w-full shadow-lg space-y-4 m-4 animate-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-bold text-destructive">Wipe All Secure Data?</h3>
+            <h3 className="text-lg font-bold text-destructive">
+              Wipe All Secure Data?
+            </h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Are you absolutely sure you want to proceed? This will permanently delete all your saved hosts, credentials, public/private keys, and encryption settings. This action is irreversible.
+              Are you absolutely sure you want to proceed? This will permanently
+              delete all your saved hosts, credentials, public/private keys, and
+              encryption settings. This action is irreversible.
             </p>
             <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" onClick={() => setShowWipeConfirm(false)}>
+              <Button
+                variant="outline"
+                onClick={() => setShowWipeConfirm(false)}
+              >
                 Cancel
               </Button>
-              <Button variant="destructive" onClick={() => {
-                setShowWipeConfirm(false);
-                wipeData();
-              }}>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setShowWipeConfirm(false);
+                  wipeData();
+                }}
+              >
                 Wipe Everything
               </Button>
             </div>

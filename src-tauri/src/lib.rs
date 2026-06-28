@@ -1,9 +1,11 @@
+mod secure_store;
+mod ssh;
 mod vault;
 
 use std::fs;
 use std::sync::Mutex;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, State};
+use tauri::{ipc::Channel, AppHandle, Manager, State};
 
 pub struct AppState {
     pub master_key: Mutex<Option<[u8; 32]>>,
@@ -11,7 +13,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    fn get_vault_path(&self, app: &AppHandle) -> Result<PathBuf, String> {
+    pub(crate) fn get_vault_path(&self, app: &AppHandle) -> Result<PathBuf, String> {
         let mut path = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
         fs::create_dir_all(&path).map_err(|e| e.to_string())?;
         path.push("vault.enc");
@@ -22,6 +24,26 @@ impl AppState {
 #[tauri::command]
 fn is_unlocked(state: State<'_, AppState>) -> bool {
     state.master_key.lock().unwrap().is_some()
+}
+
+#[tauri::command]
+fn vault_exists(app: AppHandle, state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.get_vault_path(&app)?.exists())
+}
+
+#[tauri::command]
+fn try_auto_unlock(state: State<'_, AppState>) -> bool {
+    if state.master_key.lock().unwrap().is_some() {
+        return true;
+    }
+
+    let Some((key, salt)) = secure_store::load_session() else {
+        return false;
+    };
+
+    *state.master_key.lock().unwrap() = Some(key);
+    *state.salt.lock().unwrap() = Some(salt);
+    true
 }
 
 #[tauri::command]
@@ -41,6 +63,7 @@ fn unlock(app: AppHandle, state: State<'_, AppState>, passphrase: String) -> Res
         
         *state.master_key.lock().unwrap() = Some(key);
         *state.salt.lock().unwrap() = Some(salt);
+        secure_store::save_session(&key, &salt)?;
         return Ok(true);
     }
     
@@ -49,6 +72,7 @@ fn unlock(app: AppHandle, state: State<'_, AppState>, passphrase: String) -> Res
         Ok((_vault_data, key, salt)) => {
             *state.master_key.lock().unwrap() = Some(key);
             *state.salt.lock().unwrap() = Some(salt);
+            secure_store::save_session(&key, &salt)?;
             Ok(true)
         }
         Err(e) => Err(e),
@@ -56,16 +80,19 @@ fn unlock(app: AppHandle, state: State<'_, AppState>, passphrase: String) -> Res
 }
 
 #[tauri::command]
-fn lock(state: State<'_, AppState>) -> Result<(), String> {
+fn lock(state: State<'_, AppState>, ssh: State<'_, ssh::SshManager>) -> Result<(), String> {
+    ssh.disconnect_all();
     *state.master_key.lock().unwrap() = None;
     *state.salt.lock().unwrap() = None;
     Ok(())
 }
 
 #[tauri::command]
-fn wipe_data(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+fn wipe_data(app: AppHandle, state: State<'_, AppState>, ssh: State<'_, ssh::SshManager>) -> Result<(), String> {
+    ssh.disconnect_all();
     *state.master_key.lock().unwrap() = None;
     *state.salt.lock().unwrap() = None;
+    secure_store::clear_session()?;
     
     let path = state.get_vault_path(&app)?;
     if path.exists() {
@@ -337,16 +364,77 @@ fn import_vault(
     Ok(format!("Successfully imported {} keys and {} hosts.", keys_imported, hosts_imported))
 }
 
+#[tauri::command]
+async fn ssh_connect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ssh: State<'_, ssh::SshManager>,
+    session_id: String,
+    host_id: usize,
+    cols: u32,
+    rows: u32,
+    password: Option<String>,
+    passphrase: Option<String>,
+    on_event: Channel<ssh::SshEvent>,
+) -> Result<(), String> {
+    ssh::connect(
+        app,
+        state,
+        ssh,
+        session_id,
+        host_id,
+        cols,
+        rows,
+        password,
+        passphrase,
+        on_event,
+    )
+    .await
+}
+
+#[tauri::command]
+fn ssh_write(ssh: State<'_, ssh::SshManager>, session_id: String, data: Vec<u8>) -> Result<(), String> {
+    ssh.write(&session_id, data)
+}
+
+#[tauri::command]
+fn ssh_resize(
+    ssh: State<'_, ssh::SshManager>,
+    session_id: String,
+    cols: u32,
+    rows: u32,
+) -> Result<(), String> {
+    ssh.resize(&session_id, cols, rows)
+}
+
+#[tauri::command]
+fn ssh_disconnect(ssh: State<'_, ssh::SshManager>, session_id: String) -> Result<(), String> {
+    ssh.disconnect(&session_id);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            #[cfg(not(debug_assertions))]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.eval(
+                    "document.addEventListener('contextmenu',function(e){e.preventDefault();},{capture:true});",
+                );
+            }
+            Ok(())
+        })
         .manage(AppState {
             master_key: Mutex::new(None),
             salt: Mutex::new(None),
         })
+        .manage(ssh::SshManager::default())
         .invoke_handler(tauri::generate_handler![
             is_unlocked,
+            vault_exists,
+            try_auto_unlock,
             unlock,
             lock,
             wipe_data,
@@ -358,7 +446,11 @@ pub fn run() {
             add_host,
             delete_host,
             export_vault,
-            import_vault
+            import_vault,
+            ssh_connect,
+            ssh_write,
+            ssh_resize,
+            ssh_disconnect
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
