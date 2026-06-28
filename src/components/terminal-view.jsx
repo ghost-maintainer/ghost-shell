@@ -2,6 +2,7 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useTerminals } from "@/hooks/use-terminals";
 import { getSessionLog } from "@/lib/session-history";
 import { Loader2, PlugZap, ScrollText, X } from "lucide-react";
@@ -29,7 +30,15 @@ export default function TerminalView() {
 
   const [overlayRect, setOverlayRect] = React.useState(null);
   const [authValue, setAuthValue] = React.useState("");
+  const [savePassphrase, setSavePassphrase] = React.useState(false);
   const mountRefs = React.useRef(new Map());
+
+  React.useEffect(() => {
+    if (!authPrompt) {
+      setAuthValue("");
+      setSavePassphrase(false);
+    }
+  }, [authPrompt]);
 
   const activeSession = sessions.find((s) => s.id === activeId);
   const overlayVisible = Boolean(activeId && overlayRect);
@@ -43,9 +52,9 @@ export default function TerminalView() {
     if (sessions.length === 0) return;
 
     const update = () => {
-      const main = document.getElementById("app-main");
-      if (!main) return;
-      const rect = main.getBoundingClientRect();
+      const content = document.getElementById("app-content");
+      if (!content) return;
+      const rect = content.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
       setOverlayRect({
         top: rect.top,
@@ -56,15 +65,15 @@ export default function TerminalView() {
     };
 
     update();
-    const main = document.getElementById("app-main");
-    const ro = main ? new ResizeObserver(update) : null;
-    if (main && ro) ro.observe(main);
+    const content = document.getElementById("app-content");
+    const ro = content ? new ResizeObserver(update) : null;
+    if (content && ro) ro.observe(content);
     window.addEventListener("resize", update);
     return () => {
       ro?.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, [sessions.length]);
+  }, [sessions.length, activeId]);
 
   React.useEffect(() => {
     if (!activeId || !overlayRect) return;
@@ -93,7 +102,7 @@ export default function TerminalView() {
   return (
     <>
       <div
-        className="fixed z-40 flex flex-col border bg-background shadow-sm overflow-hidden"
+        className="fixed z-40 flex flex-col bg-background overflow-hidden"
         style={{
           top: overlayRect.top,
           left: overlayRect.left,
@@ -147,7 +156,7 @@ export default function TerminalView() {
                 if (el) mountRefs.current.set(session.id, el);
                 else mountRefs.current.delete(session.id);
               }}
-              className="absolute inset-0 p-1 min-h-0 min-w-0"
+              className="absolute inset-0 min-h-0 min-w-0"
               style={{
                 zIndex: session.id === activeId ? 2 : 1,
                 opacity: session.id === activeId ? 1 : 0,
@@ -200,11 +209,27 @@ export default function TerminalView() {
                 value={authValue}
                 onChange={(e) => setAuthValue(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && authValue) {
-                    submitAuth(authValue);
-                    setAuthValue("");
+                  if (e.key === "Enter") {
+                    if (!authValue.trim()) {
+                      submitAuth("", savePassphrase);
+                      return;
+                    }
+                    submitAuth(authValue, savePassphrase);
                   }
                 }}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <Label
+                htmlFor="save-passphrase"
+                className="text-xs font-normal text-muted-foreground cursor-pointer"
+              >
+                Save passphrase
+              </Label>
+              <Switch
+                id="save-passphrase"
+                checked={savePassphrase}
+                onCheckedChange={setSavePassphrase}
               />
             </div>
             <div className="flex gap-2 justify-end">
@@ -212,16 +237,13 @@ export default function TerminalView() {
                 variant="outline"
                 onClick={() => {
                   cancelAuth();
-                  setAuthValue("");
                 }}
               >
                 Cancel
               </Button>
               <Button
-                disabled={!authValue}
                 onClick={() => {
-                  submitAuth(authValue);
-                  setAuthValue("");
+                  submitAuth(authValue, savePassphrase);
                 }}
               >
                 Connect

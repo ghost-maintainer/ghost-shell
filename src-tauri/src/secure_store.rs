@@ -1,8 +1,19 @@
 use keyring::Entry;
+use std::fs;
+use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
 
-const SERVICE: &str = "com.ghostcompiler.ghost-shell";
+const SERVICE: &str = "GhostShell";
 const ACCOUNT: &str = "vault-session";
+const SESSION_FILE: &str = "session.dat";
 const PAYLOAD_LEN: usize = 48; // 32-byte key + 16-byte salt
+
+fn session_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let mut path = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    path.push(SESSION_FILE);
+    Ok(path)
+}
 
 fn encode(key: &[u8; 32], salt: &[u8; 16]) -> String {
     let mut buf = [0u8; PAYLOAD_LEN];
@@ -12,6 +23,7 @@ fn encode(key: &[u8; 32], salt: &[u8; 16]) -> String {
 }
 
 fn decode(payload: &str) -> Result<([u8; 32], [u8; 16]), String> {
+    let payload = payload.trim();
     if payload.len() != PAYLOAD_LEN * 2 {
         return Err("Invalid stored session length".to_string());
     }
@@ -32,24 +44,50 @@ fn decode(payload: &str) -> Result<([u8; 32], [u8; 16]), String> {
     Ok((key, salt))
 }
 
-pub fn save_session(key: &[u8; 32], salt: &[u8; 16]) -> Result<(), String> {
-    let entry = Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    entry
-        .set_password(&encode(key, salt))
-        .map_err(|e| e.to_string())
+fn save_to_keyring(payload: &str) {
+    if let Ok(entry) = Entry::new(SERVICE, ACCOUNT) {
+        let _ = entry.set_password(payload);
+    }
 }
 
-pub fn load_session() -> Option<([u8; 32], [u8; 16])> {
+fn load_from_keyring() -> Option<([u8; 32], [u8; 16])> {
     let entry = Entry::new(SERVICE, ACCOUNT).ok()?;
     let payload = entry.get_password().ok()?;
     decode(&payload).ok()
 }
 
-pub fn clear_session() -> Result<(), String> {
-    let entry = Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
+fn load_from_file(app: &AppHandle) -> Option<([u8; 32], [u8; 16])> {
+    let path = session_file_path(app).ok()?;
+    let payload = fs::read_to_string(path).ok()?;
+    decode(&payload).ok()
+}
+
+pub fn save_session(app: &AppHandle, key: &[u8; 32], salt: &[u8; 16]) -> Result<(), String> {
+    let payload = encode(key, salt);
+    let path = session_file_path(app)?;
+    fs::write(&path, &payload).map_err(|e| e.to_string())?;
+    save_to_keyring(&payload);
+    Ok(())
+}
+
+pub fn load_session(app: &AppHandle) -> Option<([u8; 32], [u8; 16])> {
+    load_from_keyring().or_else(|| load_from_file(app))
+}
+
+pub fn clear_session(app: &AppHandle) -> Result<(), String> {
+    if let Ok(entry) = Entry::new(SERVICE, ACCOUNT) {
+        match entry.delete_credential() {
+            Ok(()) => {}
+            Err(keyring::Error::NoEntry) => {}
+            Err(_) => {}
+        }
     }
+
+    if let Ok(path) = session_file_path(app) {
+        if path.exists() {
+            fs::remove_file(path).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
 }

@@ -32,12 +32,12 @@ fn vault_exists(app: AppHandle, state: State<'_, AppState>) -> Result<bool, Stri
 }
 
 #[tauri::command]
-fn try_auto_unlock(state: State<'_, AppState>) -> bool {
+fn try_auto_unlock(app: AppHandle, state: State<'_, AppState>) -> bool {
     if state.master_key.lock().unwrap().is_some() {
         return true;
     }
 
-    let Some((key, salt)) = secure_store::load_session() else {
+    let Some((key, salt)) = secure_store::load_session(&app) else {
         return false;
     };
 
@@ -63,7 +63,7 @@ fn unlock(app: AppHandle, state: State<'_, AppState>, passphrase: String) -> Res
         
         *state.master_key.lock().unwrap() = Some(key);
         *state.salt.lock().unwrap() = Some(salt);
-        secure_store::save_session(&key, &salt)?;
+        secure_store::save_session(&app, &key, &salt)?;
         return Ok(true);
     }
     
@@ -72,7 +72,7 @@ fn unlock(app: AppHandle, state: State<'_, AppState>, passphrase: String) -> Res
         Ok((_vault_data, key, salt)) => {
             *state.master_key.lock().unwrap() = Some(key);
             *state.salt.lock().unwrap() = Some(salt);
-            secure_store::save_session(&key, &salt)?;
+            secure_store::save_session(&app, &key, &salt)?;
             Ok(true)
         }
         Err(e) => Err(e),
@@ -92,7 +92,7 @@ fn wipe_data(app: AppHandle, state: State<'_, AppState>, ssh: State<'_, ssh::Ssh
     ssh.disconnect_all();
     *state.master_key.lock().unwrap() = None;
     *state.salt.lock().unwrap() = None;
-    secure_store::clear_session()?;
+    secure_store::clear_session(&app)?;
     
     let path = state.get_vault_path(&app)?;
     if path.exists() {
@@ -270,6 +270,64 @@ fn add_host(app: AppHandle, state: State<'_, AppState>, entry: vault::HostEntry)
 }
 
 #[tauri::command]
+fn save_host_password(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    host_id: usize,
+    password: String,
+) -> Result<(), String> {
+    let key_guard = state.master_key.lock().unwrap();
+    let key = key_guard.as_ref().ok_or("Locked")?;
+    let salt_guard = state.salt.lock().unwrap();
+    let salt = salt_guard.as_ref().ok_or("Locked")?;
+
+    let path = state.get_vault_path(&app)?;
+    let mut vault_data = vault::decrypt_vault_with_key(&path, key)?;
+
+    let host = vault_data
+        .hosts
+        .iter_mut()
+        .find(|h| h.id == host_id)
+        .ok_or("Host not found")?;
+
+    host.password = Some(password);
+    host.updated_at = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    let encrypted_bytes = vault::encrypt_vault(&vault_data, key, salt)?;
+    std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn save_key_passphrase(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    key_id: usize,
+    passphrase: String,
+) -> Result<(), String> {
+    let key_guard = state.master_key.lock().unwrap();
+    let key = key_guard.as_ref().ok_or("Locked")?;
+    let salt_guard = state.salt.lock().unwrap();
+    let salt = salt_guard.as_ref().ok_or("Locked")?;
+
+    let path = state.get_vault_path(&app)?;
+    let mut vault_data = vault::decrypt_vault_with_key(&path, key)?;
+
+    let entry = vault_data
+        .keys
+        .iter_mut()
+        .find(|k| k.id == key_id)
+        .ok_or("Key not found")?;
+
+    entry.passphrase = Some(passphrase);
+    entry.updated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let encrypted_bytes = vault::encrypt_vault(&vault_data, key, salt)?;
+    std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn delete_host(app: AppHandle, state: State<'_, AppState>, id: usize) -> Result<(), String> {
     let key_guard = state.master_key.lock().unwrap();
     let key = key_guard.as_ref().ok_or("Locked")?;
@@ -414,14 +472,37 @@ fn ssh_disconnect(ssh: State<'_, ssh::SshManager>, session_id: String) -> Result
     Ok(())
 }
 
+#[tauri::command]
+async fn check_host_reachability(address: String, port: u16) -> bool {
+    use std::net::ToSocketAddrs;
+    use tokio::net::TcpStream;
+    use std::time::Duration;
+
+    let addr_str = format!("{}:{}", address, port);
+    let socket_addrs = tokio::task::spawn_blocking(move || {
+        addr_str.to_socket_addrs().map(|iter| iter.collect::<Vec<_>>())
+    }).await;
+
+    let Ok(Ok(addrs)) = socket_addrs else {
+        return false;
+    };
+
+    for addr in addrs {
+        if tokio::time::timeout(Duration::from_millis(1500), TcpStream::connect(&addr)).await.is_ok() {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(_window) = app.get_webview_window("main") {
                 #[cfg(not(debug_assertions))]
-                let _ = window.eval(
+                let _ = _window.eval(
                     "document.addEventListener('contextmenu',function(e){e.preventDefault();},{capture:true});",
                 );
             }
@@ -445,13 +526,16 @@ pub fn run() {
             delete_key,
             get_hosts,
             add_host,
+            save_host_password,
+            save_key_passphrase,
             delete_host,
             export_vault,
             import_vault,
             ssh_connect,
             ssh_write,
             ssh_resize,
-            ssh_disconnect
+            ssh_disconnect,
+            check_host_reachability
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

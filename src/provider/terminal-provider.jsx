@@ -256,8 +256,24 @@ export function TerminalProvider({ children }) {
               status: "connected",
               stage: "connected",
               stageMessage: "Connected",
+              authType: null,
             });
             appendRuntimeLog(sessionId, "\r\n── Connected ──\r\n");
+            if (runtime.pendingCredentialSave) {
+              const { type, value, hostId, keyId } = runtime.pendingCredentialSave;
+              delete runtime.pendingCredentialSave;
+              if (type === "password") {
+                invoke("save_host_password", { hostId, password: value }).catch(
+                  () => {},
+                );
+                runtime.host = { ...runtime.host, password: value };
+              } else if (keyId) {
+                invoke("save_key_passphrase", {
+                  keyId,
+                  passphrase: value,
+                }).catch(() => {});
+              }
+            }
             break;
           case "data": {
             const bytes = new Uint8Array(event.bytes);
@@ -547,17 +563,62 @@ export function TerminalProvider({ children }) {
     clearPersistedState();
   }, [disposeRuntimes, flushRuntimeLog]);
 
+  const failSession = React.useCallback(
+    (sessionId, message) => {
+      invoke("ssh_disconnect", { sessionId }).catch(() => {});
+      const runtime = runtimesRef.current.get(sessionId);
+      updateSession(sessionId, {
+        status: "error",
+        stageMessage: message,
+        authType: null,
+      });
+      if (runtime?.term) {
+        runtime.term.writeln(`\r\n\x1b[31m${message}\x1b[0m`);
+      }
+      appendRuntimeLog(sessionId, `\r\n${message}\r\n`);
+      flushRuntimeLog(sessionId);
+    },
+    [updateSession, appendRuntimeLog, flushRuntimeLog],
+  );
+
+  const cancelAuth = React.useCallback(() => {
+    if (!authPrompt) return;
+    const { sessionId } = authPrompt;
+    setAuthPrompt(null);
+    failSession(sessionId, "Connection canceled by user");
+  }, [authPrompt, failSession]);
+
   const submitAuth = React.useCallback(
-    async (value) => {
+    async (value, savePassphrase = false) => {
       if (!authPrompt) return;
       const { sessionId, type } = authPrompt;
+
+      if (!value?.trim()) {
+        failSession(sessionId, "Connection error: credentials are required");
+        setAuthPrompt(null);
+        return;
+      }
+
       setAuthPrompt(null);
+
+      if (savePassphrase) {
+        const runtime = runtimesRef.current.get(sessionId);
+        if (runtime) {
+          runtime.pendingCredentialSave = {
+            type,
+            value,
+            hostId: runtime.host.id,
+            keyId: runtime.host.key_id ?? null,
+          };
+        }
+      }
+
       await connectSession(
         sessionId,
         type === "password" ? { password: value } : { passphrase: value },
       );
     },
-    [authPrompt, connectSession],
+    [authPrompt, connectSession, failSession],
   );
 
   React.useEffect(() => {
@@ -665,7 +726,7 @@ export function TerminalProvider({ children }) {
       refreshTerminal,
       authPrompt,
       submitAuth,
-      cancelAuth: () => setAuthPrompt(null),
+      cancelAuth,
     }),
     [
       sessions,
@@ -679,6 +740,7 @@ export function TerminalProvider({ children }) {
       refreshTerminal,
       authPrompt,
       submitAuth,
+      cancelAuth,
     ],
   );
 

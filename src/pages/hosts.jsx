@@ -79,6 +79,7 @@ export default function Hosts() {
   const [hostKeyId, setHostKeyId] = React.useState(null);
   
   const [keyDropdownOpen, setKeyDropdownOpen] = React.useState(false);
+  const [hostStatuses, setHostStatuses] = React.useState({});
 
   // Generate Key Form States
   const [genName, setGenName] = React.useState("");
@@ -95,10 +96,32 @@ export default function Hosts() {
     setShowPassword(!showPassword);
   };
 
+  const checkReachability = async (host) => {
+    try {
+      const online = await invoke("check_host_reachability", {
+        address: host.address,
+        port: host.port,
+      });
+      setHostStatuses((prev) => ({
+        ...prev,
+        [host.id]: online ? "online" : "offline",
+      }));
+    } catch {
+      setHostStatuses((prev) => ({
+        ...prev,
+        [host.id]: "offline",
+      }));
+    }
+  };
+
   const loadHosts = async () => {
     try {
       const list = await invoke("get_hosts");
       setHosts(list || []);
+      list.forEach((h) => {
+        setHostStatuses((prev) => ({ ...prev, [h.id]: "checking" }));
+        checkReachability(h);
+      });
     } catch (err) {
       console.error("Failed to load hosts:", err);
     }
@@ -117,6 +140,16 @@ export default function Hosts() {
     loadHosts();
     loadKeys();
   }, []);
+
+  React.useEffect(() => {
+    if (hosts.length === 0) return;
+    const interval = setInterval(() => {
+      hosts.forEach((h) => {
+        checkReachability(h);
+      });
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [hosts]);
 
   const handleAddHost = async () => {
     if (!hostAddress || !hostUsername) {
@@ -222,8 +255,8 @@ export default function Hosts() {
             <InputGroupAddon>
               <SearchIcon />
             </InputGroupAddon>
-            <InputGroupInput 
-              placeholder="Search hosts" 
+            <InputGroupInput
+              placeholder="Search hosts"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -254,23 +287,46 @@ export default function Hosts() {
         {filteredHosts.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-8 bg-sidebar border rounded-lg">
             <ServerCogIcon className="size-8 text-muted-foreground mb-2 animate-bounce" />
-            <p className="text-sm font-medium text-foreground">No hosts found</p>
-            <p className="text-xs text-muted-foreground">Add a secure SSH host connection to get started.</p>
+            <p className="text-sm font-medium text-foreground">
+              No hosts found
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Add a secure SSH host connection to get started.
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
             {filteredHosts.map((host) => (
               <div
-                className="border bg-sidebar rounded-lg px-3 py-2 flex flex-row gap-2"
+                className="border bg-sidebar rounded-lg px-3 py-2 flex flex-row gap-2 cursor-pointer"
                 key={host.id}
+                onClick={() => openSession(host)}
               >
-                <div className="size-10 bg-primary/30 rounded-md flex items-center justify-center shrink-0 border border-primary/50">
+                <div className="size-10 bg-primary rounded-md flex items-center justify-center shrink-0 border border-primary/50">
                   <ServerCogIcon className="size-5 text-primary-foreground" />
                 </div>
                 <div className="flex flex-col space-y-1 items-start justify-center flex-1">
-                  <p className="text-sm font-medium leading-none text-foreground">
-                    {host.name}
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-medium leading-none text-foreground">
+                      {host.name}
+                    </p>
+                    <div
+                      className={`size-2 rounded-full shrink-0 ${
+                        hostStatuses[host.id] === "online"
+                          ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)]"
+                          : hostStatuses[host.id] === "offline"
+                            ? "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]"
+                            : "bg-muted-foreground/40 animate-pulse"
+                      }`}
+                      title={
+                        hostStatuses[host.id] === "online"
+                          ? "Reachable"
+                          : hostStatuses[host.id] === "offline"
+                            ? "Unreachable"
+                            : "Checking reachability..."
+                      }
+                    />
+                  </div>
                   <p className="text-xs leading-none text-foreground/80">
                     {host.username}@{host.address}:{host.port}
                   </p>
@@ -296,9 +352,11 @@ export default function Hosts() {
                         onSelect={() => openSession(host)}
                       >
                         <TerminalIcon className="size-3.5" />
-                        <span className="text-sm text-muted-foreground shrink-0">Connect to Host</span>
+                        <span className="text-sm text-muted-foreground shrink-0">
+                          Connect to Host
+                        </span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem 
+                      <DropdownMenuItem
                         className="cursor-pointer"
                         onSelect={() => {
                           setSelectedHost(host);
@@ -313,7 +371,9 @@ export default function Hosts() {
                         }}
                       >
                         <EditIcon className="size-3.5" />
-                        <span className="text-sm text-muted-foreground shrink-0">Edit</span>
+                        <span className="text-sm text-muted-foreground shrink-0">
+                          Edit Host
+                        </span>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
@@ -321,7 +381,9 @@ export default function Hosts() {
                         onSelect={() => setHostToDelete(host)}
                       >
                         <TrashIcon className="size-3.5 text-destructive" />
-                        <span className="text-sm text-destructive shrink-0">Delete</span>
+                        <span className="text-sm text-destructive shrink-0">
+                          Delete Host
+                        </span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -333,8 +395,13 @@ export default function Hosts() {
       </div>
 
       {/* -------------------- ADD / EDIT HOST SHEET -------------------- */}
-      <Sheet open={openAddHosts} onOpenChange={(open) => !loading && (!open && clearForm() || setOpenAddHosts(open))}>
-        <SheetContent 
+      <Sheet
+        open={openAddHosts}
+        onOpenChange={(open) =>
+          !loading && ((!open && clearForm()) || setOpenAddHosts(open))
+        }
+      >
+        <SheetContent
           className="rounded-l-xl overflow-hidden flex flex-col h-full"
           onPointerDownOutside={(e) => loading && e.preventDefault()}
           onEscapeKeyDown={(e) => loading && e.preventDefault()}
@@ -344,29 +411,31 @@ export default function Hosts() {
               {sheetMode === "add" ? "Add Hosts" : "Edit Host"}
             </SheetTitle>
             <SheetDescription>
-              {sheetMode === "add" ? "Manage Hosts" : "Modify host connection details."}
+              {sheetMode === "add"
+                ? "Manage Hosts"
+                : "Modify host connection details."}
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto flex flex-col gap-3 py-2 px-3">
             <div className="rounded-lg bg-muted p-4 space-y-3">
               <Label>Host Name</Label>
-              <Input 
-                placeholder="My Staging Server" 
+              <Input
+                placeholder="My Staging Server"
                 className="bg-background"
                 value={hostName}
                 onChange={(e) => setHostName(e.target.value)}
                 disabled={loading}
               />
             </div>
-            
+
             <div className="rounded-lg bg-muted p-4 space-y-3">
               <Label>Address</Label>
               <div className="flex items-center gap-2">
                 <div className="size-10 bg-primary rounded-full flex items-center justify-center shrink-0">
                   <Server className="size-5.5 text-primary-foreground" />
                 </div>
-                <Input 
-                  placeholder="Server Address (e.g. 192.168.1.50)" 
+                <Input
+                  placeholder="Server Address (e.g. 192.168.1.50)"
                   className="bg-background"
                   value={hostAddress}
                   onChange={(e) => setHostAddress(e.target.value)}
@@ -400,8 +469,8 @@ export default function Hosts() {
                     <InputGroupAddon>
                       <UserIcon />
                     </InputGroupAddon>
-                    <InputGroupInput 
-                      placeholder="Username" 
+                    <InputGroupInput
+                      placeholder="Username"
                       value={hostUsername}
                       onChange={(e) => setHostUsername(e.target.value)}
                       disabled={loading}
@@ -418,7 +487,11 @@ export default function Hosts() {
                       onChange={(e) => setHostPassword(e.target.value)}
                       disabled={loading}
                     />
-                    <InputGroupButton type="button" onClick={handleShowPassword} disabled={loading}>
+                    <InputGroupButton
+                      type="button"
+                      onClick={handleShowPassword}
+                      disabled={loading}
+                    >
                       {showPassword ? (
                         <EyeIcon className="size-4" />
                       ) : (
@@ -429,10 +502,16 @@ export default function Hosts() {
 
                   {/* Focus-triggered SSH Key Selector */}
                   <div className="flex flex-col gap-1.5 relative">
-                    <Label className="text-xs text-muted-foreground">SSH Key Pair (Optional)</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      SSH Key Pair (Optional)
+                    </Label>
                     <Input
-                      placeholder={keys.length === 0 ? "No keys available (Click Create a Key)" : "Select key pair..."}
-                      value={keys.find(k => k.id === hostKeyId)?.name || ""}
+                      placeholder={
+                        keys.length === 0
+                          ? "No keys available (Click Create a Key)"
+                          : "Select key pair..."
+                      }
+                      value={keys.find((k) => k.id === hostKeyId)?.name || ""}
                       onFocus={() => setKeyDropdownOpen(true)}
                       onBlur={() => {
                         // Small delay to allow click events to fire before blurring
@@ -445,7 +524,7 @@ export default function Hosts() {
                     {keyDropdownOpen && (
                       <div className="absolute top-[56px] left-0 right-0 z-50 border bg-popover text-popover-foreground rounded-md shadow-md max-h-48 overflow-y-auto p-1 space-y-1">
                         {keys.length > 0 && (
-                          <div 
+                          <div
                             className="px-2 py-1 text-[10px] font-semibold text-muted-foreground border-b mb-1"
                             onMouseDown={(e) => e.preventDefault()}
                           >
@@ -461,11 +540,15 @@ export default function Hosts() {
                               setKeyDropdownOpen(false);
                             }}
                             className={`px-2 py-1 text-xs rounded-sm cursor-pointer flex items-center justify-between ${
-                              hostKeyId === k.id ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent hover:text-accent-foreground text-foreground"
+                              hostKeyId === k.id
+                                ? "bg-primary text-primary-foreground font-semibold"
+                                : "hover:bg-accent hover:text-accent-foreground text-foreground"
                             }`}
                           >
                             <span>{k.name}</span>
-                            <span className="opacity-70 uppercase text-[9px]">({k.type})</span>
+                            <span className="opacity-70 uppercase text-[9px]">
+                              ({k.type})
+                            </span>
                           </div>
                         ))}
                         {hostKeyId && (
@@ -494,14 +577,21 @@ export default function Hosts() {
                       </div>
                     )}
                   </div>
-
                 </div>
               </div>
             </div>
           </div>
           <SheetFooter className="bg-muted flex-row gap-2 py-2.5 px-3">
-            <Button className="flex-1" onClick={handleAddHost} disabled={loading}>
-              {loading ? <Loader2 className="animate-spin size-4" /> : <Save className="size-4" />}
+            <Button
+              className="flex-1"
+              onClick={handleAddHost}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="animate-spin size-4" />
+              ) : (
+                <Save className="size-4" />
+              )}
               {loading ? "Saving Host..." : "Save Host"}
             </Button>
             <Button
@@ -521,11 +611,13 @@ export default function Hosts() {
       </Sheet>
 
       {/* -------------------- DYNAMIC GENERATE KEY SHEET -------------------- */}
-      <Sheet 
-        open={openGenerateKey} 
-        onOpenChange={(open) => !loading && (!open && clearGenStates() || setOpenGenerateKey(open))}
+      <Sheet
+        open={openGenerateKey}
+        onOpenChange={(open) =>
+          !loading && ((!open && clearGenStates()) || setOpenGenerateKey(open))
+        }
       >
-        <SheetContent 
+        <SheetContent
           className="rounded-l-xl overflow-hidden flex flex-col h-full z-[100]"
           onPointerDownOutside={(e) => loading && e.preventDefault()}
           onEscapeKeyDown={(e) => loading && e.preventDefault()}
@@ -552,14 +644,21 @@ export default function Hosts() {
                 <div className="space-y-2">
                   <Label>Key Type</Label>
                   <TabsList className="grid w-full grid-cols-3 bg-background">
-                    <TabsTrigger value="rsa" disabled={loading}>RSA</TabsTrigger>
-                    <TabsTrigger value="ed25519" disabled={loading}>Ed25519</TabsTrigger>
-                    <TabsTrigger value="ecdsa" disabled={loading}>ECDSA</TabsTrigger>
+                    <TabsTrigger value="rsa" disabled={loading}>
+                      RSA
+                    </TabsTrigger>
+                    <TabsTrigger value="ed25519" disabled={loading}>
+                      Ed25519
+                    </TabsTrigger>
+                    <TabsTrigger value="ecdsa" disabled={loading}>
+                      ECDSA
+                    </TabsTrigger>
                   </TabsList>
                 </div>
                 <TabsContent value="rsa" className="space-y-4">
                   <p className="text-xs text-muted-foreground">
-                    Compatible with almost every SSH server. (Sizes less than 2048 are blocked for security).
+                    Compatible with almost every SSH server. (Sizes less than
+                    2048 are blocked for security).
                   </p>
                   <div className="space-y-2">
                     <Label>Key Size</Label>
@@ -603,7 +702,8 @@ export default function Hosts() {
                 </TabsContent>
                 <TabsContent value="ed25519" className="space-y-4">
                   <p className="text-xs text-muted-foreground">
-                    Recommended for modern systems. Fast, compact, and highly secure.
+                    Recommended for modern systems. Fast, compact, and highly
+                    secure.
                   </p>
                 </TabsContent>
               </Tabs>
@@ -626,7 +726,11 @@ export default function Hosts() {
                   onClick={() => setShowGenPassphrase(!showGenPassphrase)}
                   disabled={loading}
                 >
-                  {showGenPassphrase ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+                  {showGenPassphrase ? (
+                    <EyeOffIcon className="size-4" />
+                  ) : (
+                    <EyeIcon className="size-4" />
+                  )}
                 </InputGroupButton>
               </InputGroup>
               <p className="text-xs text-muted-foreground">
@@ -639,8 +743,8 @@ export default function Hosts() {
                 >
                   Save passphrase
                 </Label>
-                <Switch 
-                  id="save-passphrase-switch" 
+                <Switch
+                  id="save-passphrase-switch"
                   checked={genSavePassphrase}
                   onCheckedChange={setGenSavePassphrase}
                   disabled={loading}
@@ -649,8 +753,17 @@ export default function Hosts() {
             </div>
           </div>
           <SheetFooter className="bg-muted flex-row gap-2 py-2.5">
-            <Button size="sm" className="flex-1" onClick={handleGenerateKey} disabled={loading}>
-              {loading ? <Loader2 className="animate-spin size-4 animate-duration-1000" /> : <KeyIcon className="size-4" />}
+            <Button
+              size="sm"
+              className="flex-1"
+              onClick={handleGenerateKey}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="animate-spin size-4 animate-duration-1000" />
+              ) : (
+                <KeyIcon className="size-4" />
+              )}
               {loading ? "Generating..." : "Generate"}
             </Button>
             <Button
@@ -679,9 +792,12 @@ export default function Hosts() {
                 <TrashIcon className="size-5 text-destructive" />
               </div>
               <div className="space-y-0.5">
-                <p className="text-sm font-semibold text-foreground">Delete host</p>
+                <p className="text-sm font-semibold text-foreground">
+                  Delete host
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  This will permanently remove "{hostToDelete.name}". This cannot be undone.
+                  This will permanently remove "{hostToDelete.name}". This
+                  cannot be undone.
                 </p>
               </div>
             </div>

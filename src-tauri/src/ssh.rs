@@ -184,9 +184,7 @@ async fn authenticate(
 
     if authenticated {
         Ok(())
-    } else if key_pem.is_some() && password.is_none() {
-        Err("NeedPassword".to_string())
-    } else if key_pem.is_some() {
+    } else if password.is_some() || passphrase.is_some() {
         Err("Authentication failed".to_string())
     } else {
         Err("NeedPassword".to_string())
