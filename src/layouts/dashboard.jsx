@@ -34,7 +34,6 @@ export default function DashboardLayout({ children, sidebar = true }) {
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  console.log(location.pathname);
   const MENU_ITEMS = [
     {
       label: "Hosts",

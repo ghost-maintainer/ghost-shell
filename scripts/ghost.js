@@ -86,16 +86,42 @@ function bundleDirFor(target) {
     : path.join(TARGET_DIR, "release", "bundle");
 }
 
+// The only files we keep — the actual installers/packages users download.
+// Everything else in bundle/ (the unpacked .app, icons, helper scripts) is dropped.
+const INSTALLER_EXTS = [".dmg", ".exe", ".msi", ".deb", ".rpm", ".appimage"];
+
+// Recursively collect installer files, skipping the unpacked *.app bundle dir.
+function findInstallers(dir, out = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name.endsWith(".app")) continue; // the raw app, not a distributable
+      findInstallers(full, out);
+    } else if (INSTALLER_EXTS.includes(path.extname(entry.name).toLowerCase())) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
 function collectArtifacts(target) {
   const bundleDir = bundleDirFor(target);
   if (!fs.existsSync(bundleDir)) {
     console.warn(`⚠️  No bundle directory found at ${bundleDir} — skipping copy.`);
     return;
   }
-  const dest = target ? path.join(BUILD_DIR, target) : BUILD_DIR;
-  fs.mkdirSync(dest, { recursive: true });
-  console.log(`\n📁 Collecting distributables → ${path.relative(ROOT, dest)}\n`);
-  fs.cpSync(bundleDir, dest, { recursive: true });
+  const installers = findInstallers(bundleDir);
+  if (installers.length === 0) {
+    console.warn(`⚠️  No installer files found under ${bundleDir} — skipping copy.`);
+    return;
+  }
+  // Flatten the installers straight into build/ — no nested folders, no junk.
+  fs.mkdirSync(BUILD_DIR, { recursive: true });
+  console.log(`\n📁 Collecting installers → ${path.relative(ROOT, BUILD_DIR)}/\n`);
+  for (const file of installers) {
+    fs.copyFileSync(file, path.join(BUILD_DIR, path.basename(file)));
+    console.log(`   • ${path.basename(file)}`);
+  }
 }
 
 // Drop everything that isn't the final distributable: the Rust target dir
