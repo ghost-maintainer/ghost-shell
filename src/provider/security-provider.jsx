@@ -1,39 +1,76 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { clearSessionHistory, pruneExpiredSessions } from "@/lib/session-history";
 
 const SecurityContext = createContext({
   unlocked: false,
   loading: true,
+  needsSetup: false,
+  keychainFailed: false,
   unlock: async () => false,
   lock: async () => {},
   wipeData: async () => {},
+  retryAutoUnlock: async () => false,
 });
 
 export function SecurityProvider({ children }) {
   const [unlocked, setUnlocked] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [keychainFailed, setKeychainFailed] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
+
+  const retryAutoUnlock = useCallback(async () => {
+    try {
+      const ok = await invoke("try_auto_unlock");
+      if (ok) {
+        setUnlocked(true);
+        setKeychainFailed(false);
+      } else {
+        setUnlocked(false);
+        setKeychainFailed(true);
+      }
+      return ok;
+    } catch (err) {
+      console.error("Auto unlock failed:", err);
+      setUnlocked(false);
+      setKeychainFailed(true);
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
-    const wasOnLogin = location.pathname === "/dashboard/login";
     let cancelled = false;
 
     async function bootstrap() {
       try {
         pruneExpiredSessions();
+        const vaultExists = await invoke("vault_exists");
+        if (cancelled) return;
+
+        if (!vaultExists) {
+          setNeedsSetup(true);
+          setUnlocked(false);
+          setKeychainFailed(false);
+          navigate("/dashboard/login", { replace: true });
+          return;
+        }
+
+        setNeedsSetup(false);
         const autoUnlocked = await invoke("try_auto_unlock");
         if (cancelled) return;
 
         if (autoUnlocked) {
           setUnlocked(true);
-          if (wasOnLogin) {
-            navigate("/dashboard/hosts", { replace: true });
-          }
+          setKeychainFailed(false);
+        } else {
+          setUnlocked(false);
+          setKeychainFailed(true);
         }
       } catch (err) {
         console.error("Failed to restore secure session:", err);
+        setKeychainFailed(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -50,7 +87,9 @@ export function SecurityProvider({ children }) {
     try {
       const success = await invoke("unlock", { passphrase });
       if (success) {
+        setNeedsSetup(false);
         setUnlocked(true);
+        setKeychainFailed(false);
         navigate("/dashboard/hosts");
         return true;
       }
@@ -65,7 +104,7 @@ export function SecurityProvider({ children }) {
     try {
       await invoke("lock");
       setUnlocked(false);
-      navigate("/dashboard/login");
+      await retryAutoUnlock();
     } catch (err) {
       console.error("Lock failed:", err);
     }
@@ -77,18 +116,24 @@ export function SecurityProvider({ children }) {
       clearSessionHistory();
       sessionStorage.removeItem("ghost-shell-terminal-sessions");
       setUnlocked(false);
-      navigate("/dashboard/login");
+      setNeedsSetup(true);
+      setKeychainFailed(false);
+      navigate("/dashboard/login", { replace: true });
     } catch (err) {
       console.error("Wipe failed:", err);
+      throw err;
     }
   };
 
   const value = {
     unlocked,
     loading,
+    needsSetup,
+    keychainFailed,
     unlock,
     lock,
     wipeData,
+    retryAutoUnlock,
   };
 
   if (loading) {

@@ -132,24 +132,75 @@ pub fn decrypt_vault_bytes_with_key(bytes: &[u8], key: &[u8; 32]) -> Result<Vaul
     if bytes.len() < MAGIC_HEADER.len() + 16 + 12 {
         return Err("Invalid or corrupted backup data (too short)".to_string());
     }
-    
+
     let magic = &bytes[..MAGIC_HEADER.len()];
     if magic != MAGIC_HEADER {
         return Err("Invalid backup file format (magic mismatch)".to_string());
     }
-    
+
     let mut nonce_bytes = [0u8; 12];
     let offset = MAGIC_HEADER.len() + 16;
-    nonce_bytes.copy_from_slice(&bytes[offset .. offset + 12]);
-    
+    nonce_bytes.copy_from_slice(&bytes[offset..offset + 12]);
+
     let ciphertext = &bytes[offset + 12..];
-    
+
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
     let nonce = Nonce::from_slice(&nonce_bytes);
-    let decrypted_bytes = cipher.decrypt(nonce, ciphertext).map_err(|_| "Backup file decryption failed. It may be encrypted with a different passphrase or corrupted.".to_string())?;
-    
+    let decrypted_bytes = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|_| {
+            "Backup file decryption failed. It may be encrypted with a different passphrase or corrupted.".to_string()
+        })?;
+
     let vault: VaultData = serde_json::from_slice(&decrypted_bytes).map_err(|e| e.to_string())?;
     Ok(vault)
+}
+
+pub fn decrypt_vault_bytes_with_passphrase(bytes: &[u8], passphrase: &str) -> Result<VaultData, String> {
+    if bytes.len() < MAGIC_HEADER.len() + 16 + 12 {
+        return Err("Invalid or corrupted backup data (too short)".to_string());
+    }
+
+    let magic = &bytes[..MAGIC_HEADER.len()];
+    if magic != MAGIC_HEADER {
+        return Err("Invalid backup file format (magic mismatch)".to_string());
+    }
+
+    let mut salt = [0u8; 16];
+    salt.copy_from_slice(&bytes[MAGIC_HEADER.len()..MAGIC_HEADER.len() + 16]);
+
+    let mut nonce_bytes = [0u8; 12];
+    let offset = MAGIC_HEADER.len() + 16;
+    nonce_bytes.copy_from_slice(&bytes[offset..offset + 12]);
+
+    let ciphertext = &bytes[offset + 12..];
+
+    let key = derive_key(passphrase, &salt);
+
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let decrypted_bytes = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|_| {
+            "Backup file decryption failed. Wrong passphrase or corrupted file.".to_string()
+        })?;
+
+    let vault: VaultData = serde_json::from_slice(&decrypted_bytes).map_err(|e| e.to_string())?;
+    Ok(vault)
+}
+
+pub fn decrypt_vault_bytes(bytes: &[u8], session_key: &[u8; 32], passphrase: Option<&str>) -> Result<VaultData, String> {
+    if let Ok(vault) = decrypt_vault_bytes_with_key(bytes, session_key) {
+        return Ok(vault);
+    }
+
+    match passphrase {
+        Some(pass) => decrypt_vault_bytes_with_passphrase(bytes, pass),
+        None => Err(
+            "Backup file decryption failed. Enter the passphrase used when this backup was created."
+                .to_string(),
+        ),
+    }
 }
 
 pub fn generate_ssh_key(key_type: &str, size_or_curve: &str) -> Result<(String, String), String> {

@@ -6,7 +6,6 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import { invoke } from "@tauri-apps/api/core";
 import { EyeIcon, EyeOffIcon, LockIcon } from "lucide-react";
 import React from "react";
 import { useSecurity } from "../provider/security-provider";
@@ -16,15 +15,8 @@ export default function Login() {
   const [showPassphrase, setShowPassphrase] = React.useState(false);
   const [error, setError] = React.useState("");
   const [isLoggingIn, setIsLoggingIn] = React.useState(false);
-  const [isFirstSetup, setIsFirstSetup] = React.useState(null);
 
   const { unlock } = useSecurity();
-
-  React.useEffect(() => {
-    invoke("vault_exists")
-      .then((exists) => setIsFirstSetup(!exists))
-      .catch(() => setIsFirstSetup(false));
-  }, []);
 
   const handleShowPassphrase = () => {
     setShowPassphrase(!showPassphrase);
@@ -43,25 +35,18 @@ export default function Login() {
     try {
       const success = await unlock(passphrase);
       if (!success) {
-        setError("Invalid passphrase. Please try again.");
+        setError("Could not create vault. Please try again.");
       }
     } catch (err) {
       setError(
         typeof err === "string"
           ? err
-          : err?.message || "Failed to unlock vault.",
+          : err?.message || "Failed to set up vault.",
       );
     } finally {
       setIsLoggingIn(false);
     }
   };
-
-  const title = isFirstSetup
-    ? "Create your master passphrase"
-    : "Enter your passphrase";
-  const subtitle = isFirstSetup
-    ? "This is only required once. Ghost Shell will remember it securely using your system keychain."
-    : "Your session was locked. Enter your passphrase to continue.";
 
   return (
     <div
@@ -70,9 +55,13 @@ export default function Login() {
     >
       <img src={logo} alt="logo" className="size-18" data-tauri-drag-region />
       <div className="text-center space-y-1">
-        <p className="text-lg text-foreground leading-none">{title}</p>
+        <p className="text-lg text-foreground leading-none">
+          Create your master passphrase
+        </p>
         <p className="text-xs text-muted-foreground leading-none max-w-sm">
-          {subtitle}
+          This is only required once. Ghost Shell will remember it securely
+          using your system keychain — you will not see this screen again unless
+          you reset all data.
         </p>
       </div>
       <form
@@ -108,17 +97,8 @@ export default function Login() {
         )}
 
         <div className="px-4 py-2 w-full">
-          <Button
-            className="w-full"
-            size="lg"
-            type="submit"
-            disabled={isLoggingIn}
-          >
-            {isLoggingIn
-              ? "Verifying..."
-              : isFirstSetup
-                ? "Create & Continue"
-                : "Unlock"}
+          <Button className="w-full" size="lg" type="submit" disabled={isLoggingIn}>
+            {isLoggingIn ? "Setting up..." : "Create & Continue"}
           </Button>
         </div>
       </form>

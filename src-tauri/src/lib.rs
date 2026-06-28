@@ -328,13 +328,14 @@ fn import_vault(
     app: AppHandle,
     state: State<'_, AppState>,
     bytes: Vec<u8>,
+    passphrase: Option<String>,
 ) -> Result<String, String> {
     let key_guard = state.master_key.lock().unwrap();
     let key = key_guard.as_ref().ok_or("Locked")?;
     let salt_guard = state.salt.lock().unwrap();
     let salt = salt_guard.as_ref().ok_or("Locked")?;
-    
-    let imported_vault = vault::decrypt_vault_bytes_with_key(&bytes, key)?;
+
+    let imported_vault = vault::decrypt_vault_bytes(&bytes, key, passphrase.as_deref())?;
         
     let path = state.get_vault_path(&app)?;
     let mut current_vault = if path.exists() {
@@ -418,8 +419,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            #[cfg(not(debug_assertions))]
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(not(debug_assertions))]
                 let _ = window.eval(
                     "document.addEventListener('contextmenu',function(e){e.preventDefault();},{capture:true});",
                 );
