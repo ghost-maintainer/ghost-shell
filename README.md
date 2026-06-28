@@ -58,7 +58,7 @@ automatically by CI whenever a `v*` tag is pushed. Pick the file that matches yo
 
 </details>
 
-> `<ver>` is the release version (e.g. `0.1.0`). GitHub displays spaces in asset names as dots.
+> `<ver>` is the release version (e.g. `1.0.0`). GitHub displays spaces in asset names as dots.
 
 > [!WARNING]
 > **All builds are unsigned.** This project does not (yet) have an Apple Developer, Windows
@@ -161,8 +161,8 @@ final installers are kept — flattened into `build/`, with all intermediates re
 
 ```
 build/
-├─ Ghost Shell_0.1.0_x64-setup.exe
-└─ Ghost Shell_0.1.0_x64_en-US.msi
+├─ Ghost Shell_1.0.0_x64-setup.exe
+└─ Ghost Shell_1.0.0_x64_en-US.msi
 ```
 
 > **Tip:** for a direct, unzipped download of any installer, use the **Releases** page — GitHub
