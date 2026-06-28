@@ -21,17 +21,30 @@ import {
 } from "@/components/ui/tooltip";
 import DashboardLayout from "@/layouts/dashboard";
 import {
+  ClipboardIcon,
+  EditIcon,
   EyeIcon,
   EyeOffIcon,
   LockIcon,
+  MoreHorizontalIcon,
   PlusIcon,
   SearchIcon,
   Server,
   ServerCog,
+  ServerCogIcon,
+  TerminalIcon,
+  TrashIcon,
   UserIcon,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import React from "react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function Hosts() {
   const [showPassword, setShowPassword] = React.useState(false);
@@ -42,6 +55,32 @@ export default function Hosts() {
   const handleOpenAddHosts = () => {
     setOpenAddHosts(!openAddHosts);
   };
+  const DEMO_DATA = [
+    {
+      id: 1,
+      name: "Host 1",
+      address: "192.168.1.1",
+      port: 22,
+      username: "root",
+      password: "password",
+      keyId: 1,
+      createdAt: "2021-01-01",
+      updatedAt: "2021-01-01",
+      os: "Linux",
+    },
+    ...Array.from({ length: 10 }, (_, index) => ({
+      id: index + 2,
+      name: `Host ${index + 2}`,
+      address: `192.168.1.${index + 2}`,
+      port: 22,
+      username: "root",
+      password: "password",
+      keyId: index + 2,
+      createdAt: "2021-01-01",
+      updatedAt: "2021-01-01",
+      os: "Linux",
+    })),
+  ];
   return (
     <DashboardLayout>
       <div className="flex flex-col gap-2">
@@ -55,7 +94,11 @@ export default function Hosts() {
           <div className="flex flex-col gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="sm" variant="outline" onClick={handleOpenAddHosts}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleOpenAddHosts}
+                >
                   <PlusIcon />
                   <span>Add Hosts</span>
                 </Button>
@@ -65,6 +108,62 @@ export default function Hosts() {
               </TooltipContent>
             </Tooltip>
           </div>
+        </div>
+        <div className=" grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+          {DEMO_DATA.map((host, index) => (
+            <div
+              className="border bg-sidebar rounded-lg px-3 py-2 flex flex-row gap-2"
+              key={index}
+            >
+              <div className="size-10 bg-primary/30 rounded-md flex items-center justify-center shrink-0 border border-primary/50">
+                <ServerCogIcon className="size-5 text-primary-foreground" />
+              </div>
+              <div className="flex flex-col space-y-1 items-start justify-center flex-1">
+                <p className="text-sm font-medium leading-none text-foreground">
+                  {host.name}
+                </p>
+                <p className="text-xs leading-none text-foreground/80">
+                  {host.address}
+                </p>
+              </div>
+              <div className="flex flex-col space-y-1 items-end justify-center">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="icon-xs"
+                      variant="outline"
+                      className="rounded-xs cursor-pointer"
+                    >
+                      <MoreHorizontalIcon className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    side="bottom"
+                    align="end"
+                    className="rounded-xs w-fit px-2 space-y-1"
+                  >
+                    <DropdownMenuItem className="cursor-pointer">
+                      <TerminalIcon className="size-3.5" />
+                      <span className="text-sm text-muted-foreground shrink-0">Connect to Host</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="cursor-pointer">
+                      <ClipboardIcon className="size-3.5" />
+                      <span className="text-sm text-muted-foreground shrink-0">Copy Public Key</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="cursor-pointer">
+                      <EditIcon className="size-3.5" />
+                      <span className="text-sm text-muted-foreground shrink-0">Edit</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="cursor-pointer" variant="destructive">
+                      <TrashIcon className="size-3.5" />
+                      <span className="text-sm text-muted-foreground shrink-0">Delete</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
       <Sheet open={openAddHosts} onOpenChange={handleOpenAddHosts}>

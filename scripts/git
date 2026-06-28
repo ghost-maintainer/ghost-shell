@@ -49,10 +49,18 @@ fi
 
 if git rev-parse --verify HEAD >/dev/null 2>&1; then
     DIFF=$(git diff --cached --stat)
-    PATCH=$(git diff --cached --unified=0)
+    PATCH=$(git diff --cached --unified=1)
 else
     DIFF=$(git diff --cached --stat)
-    PATCH=$(git diff --cached --unified=0 --no-index /dev/null . || true)
+    PATCH=$(git diff --cached --unified=1 --no-index /dev/null . || true)
+fi
+
+# Large diffs can cause API failures; keep the prompt small.
+MAX_PATCH_CHARS=6000
+if [ "${#PATCH}" -gt "$MAX_PATCH_CHARS" ]; then
+    PATCH="${PATCH:0:$MAX_PATCH_CHARS}
+
+...(diff truncated)..."
 fi
 
 #########################################
@@ -98,37 +106,45 @@ EOF
 
 echo -e "${BLUE}Generating commit message...${NC}"
 
-COMMIT_MESSAGE=$(
-curl -s "$API_URL" \
--H "Authorization: Bearer $API_KEY" \
--H "Content-Type: application/json" \
--d "$(jq -n \
---arg model "$API_MODEL" \
---arg prompt "$PROMPT" \
-'{
-model:$model,
-temperature:0.2,
-max_tokens:25,
-messages:[
-{
-role:"user",
-content:$prompt
-}
-]
-}')" \
-| jq -r '.choices[0].message.content // empty'
+API_RESPONSE_FILE=$(mktemp)
+trap 'rm -f "$API_RESPONSE_FILE"' EXIT
+
+HTTP_CODE=$(
+    curl -sS -o "$API_RESPONSE_FILE" -w "%{http_code}" \
+        "$API_URL" \
+        -H "Authorization: Bearer $API_KEY" \
+        -H "Content-Type: application/json" \
+        -d "$(jq -n \
+            --arg model "$API_MODEL" \
+            --arg prompt "$PROMPT" \
+            '{
+              model: $model,
+              temperature: 0.2,
+              max_tokens: 25,
+              messages: [{ role: "user", content: $prompt }]
+            }')"
 )
 
+COMMIT_MESSAGE=$(jq -r '.choices[0].message.content // empty' "$API_RESPONSE_FILE" 2>/dev/null || true)
+
 COMMIT_MESSAGE=$(echo "$COMMIT_MESSAGE" \
-| head -n1 \
-| sed 's/^"//;s/"$//' \
-| xargs)
+    | head -n1 \
+    | sed 's/^"//;s/"$//' \
+    | xargs)
 
 #########################################
 # Fallback
 #########################################
 
 if [ -z "$COMMIT_MESSAGE" ] || [ "$COMMIT_MESSAGE" = "null" ]; then
+    API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
+    echo -e "${RED}Commit message API failed (HTTP ${HTTP_CODE}).${NC}" >&2
+    if [ -n "$API_ERROR" ]; then
+        echo -e "${RED}Reason: ${API_ERROR}${NC}" >&2
+    elif [ "$HTTP_CODE" != "200" ]; then
+        echo -e "${RED}Response: $(head -c 300 "$API_RESPONSE_FILE")${NC}" >&2
+    fi
+    echo -e "${RED}Using fallback message. Check API_KEY/API_MODEL in .env.${NC}" >&2
     COMMIT_MESSAGE="chore: update project $(date '+%Y-%m-%d %H:%M')"
 fi
 
