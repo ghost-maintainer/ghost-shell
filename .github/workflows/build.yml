@@ -1,12 +1,19 @@
 name: Build All Versions
 
 # Build every distributable target via scripts/ghost.js.
-# Trigger manually from the Actions tab, or on a version tag (v*).
+# Runs on every push (any branch) and on version tags (v*); also manual.
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "**"
     tags:
       - "v*"
+
+# A new push to the same ref cancels any build still running for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write # needed for the optional release step on tags
