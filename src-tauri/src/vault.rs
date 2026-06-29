@@ -249,3 +249,51 @@ pub fn generate_ssh_key(key_type: &str, size_or_curve: &str) -> Result<(String, 
         _ => Err(format!("Unsupported key type: {}", key_type)),
     }
 }
+
+fn decode_hex(hex: &str) -> Result<Vec<u8>, String> {
+    let hex = hex.trim();
+    if hex.len() % 2 != 0 {
+        return Err("Invalid hex length".to_string());
+    }
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    let chars: Vec<char> = hex.chars().collect();
+    for i in (0..hex.len()).step_by(2) {
+        let byte_str: String = chars[i..i+2].iter().collect();
+        let byte = u8::from_str_radix(&byte_str, 16).map_err(|e| e.to_string())?;
+        bytes.push(byte);
+    }
+    Ok(bytes)
+}
+
+pub fn encrypt_record<T: Serialize>(data: &T, key: &[u8; 32]) -> Result<String, String> {
+    let json_bytes = serde_json::to_vec(data).map_err(|e| e.to_string())?;
+    let mut nonce_bytes = [0u8; 12];
+    thread_rng().fill_bytes(&mut nonce_bytes);
+    
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext = cipher.encrypt(nonce, json_bytes.as_slice()).map_err(|e| e.to_string())?;
+    
+    let mut payload = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
+    payload.extend_from_slice(&nonce_bytes);
+    payload.extend_from_slice(&ciphertext);
+    
+    Ok(payload.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
+pub fn decrypt_record<T: for<'de> Deserialize<'de>>(hex_str: &str, key: &[u8; 32]) -> Result<T, String> {
+    let bytes = decode_hex(hex_str)?;
+    if bytes.len() < 12 {
+        return Err("Encrypted record too short".to_string());
+    }
+    let mut nonce_bytes = [0u8; 12];
+    nonce_bytes.copy_from_slice(&bytes[..12]);
+    let ciphertext = &bytes[12..];
+    
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let decrypted_bytes = cipher.decrypt(nonce, ciphertext).map_err(|_| "Record decryption failed. Wrong key or corrupted data.".to_string())?;
+    
+    let data: T = serde_json::from_slice(&decrypted_bytes).map_err(|e| e.to_string())?;
+    Ok(data)
+}

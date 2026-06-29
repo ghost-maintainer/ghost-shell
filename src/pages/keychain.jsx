@@ -73,6 +73,7 @@ export default function KeyChain() {
   const [genSavePassphrase, setGenSavePassphrase] = React.useState(false);
 
   const [loading, setLoading] = React.useState(false);
+  const [attemptedSubmit, setAttemptedSubmit] = React.useState(false);
 
   const loadKeys = async () => {
     try {
@@ -94,6 +95,7 @@ export default function KeyChain() {
   };
 
   const handleAddKey = async () => {
+    setAttemptedSubmit(true);
     if (!addName || !addPrivateKey) {
       alert("Name and Private Key are required.");
       return;
@@ -153,6 +155,7 @@ export default function KeyChain() {
   };
 
   const handleGenerateKey = async () => {
+    setAttemptedSubmit(true);
     if (!genName) {
       alert("Key name is required.");
       return;
@@ -186,12 +189,14 @@ export default function KeyChain() {
     setAddCertificate("");
     setAddPassphrase("");
     setSelectedKey(null);
+    setAttemptedSubmit(false);
   };
 
   const clearGenStates = () => {
     setGenName("");
     setGenPassphrase("");
     setGenSavePassphrase(false);
+    setAttemptedSubmit(false);
   };
 
   const filteredKeys = keys.filter((k) =>
@@ -396,6 +401,7 @@ export default function KeyChain() {
                   onChange={(e) => setAddName(e.target.value)}
                   readOnly={sheetMode === "view"}
                   disabled={loading}
+                  aria-invalid={attemptedSubmit && !addName ? "true" : "false"}
                 />
               </div>
               <div className="space-y-1">
@@ -419,6 +425,7 @@ export default function KeyChain() {
                   onChange={(e) => setAddPrivateKey(e.target.value)}
                   readOnly={sheetMode === "view"}
                   disabled={loading}
+                  aria-invalid={attemptedSubmit && !addPrivateKey ? "true" : "false"}
                 />
               </div>
               <div className="space-y-1">
@@ -585,6 +592,7 @@ export default function KeyChain() {
                   value={genName}
                   onChange={(e) => setGenName(e.target.value)}
                   disabled={loading}
+                  aria-invalid={attemptedSubmit && !genName ? "true" : "false"}
                 />
               </div>
               <Tabs value={keyType} onValueChange={setKeyType}>

@@ -91,6 +91,7 @@ export default function Hosts() {
   const [ecdsaKeySize, setEcdsaKeySize] = React.useState("521");
 
   const [loading, setLoading] = React.useState(false);
+  const [attemptedSubmit, setAttemptedSubmit] = React.useState(false);
 
   const handleShowPassword = () => {
     setShowPassword(!showPassword);
@@ -152,6 +153,7 @@ export default function Hosts() {
   }, [hosts]);
 
   const handleAddHost = async () => {
+    setAttemptedSubmit(true);
     if (!hostAddress || !hostUsername) {
       alert("Address and Username are required.");
       return;
@@ -234,6 +236,7 @@ export default function Hosts() {
     setHostPassword("");
     setHostKeyId(null);
     setSelectedHost(null);
+    setAttemptedSubmit(false);
   };
 
   const clearGenStates = () => {
@@ -440,6 +443,7 @@ export default function Hosts() {
                   value={hostAddress}
                   onChange={(e) => setHostAddress(e.target.value)}
                   disabled={loading}
+                  aria-invalid={attemptedSubmit && !hostAddress ? "true" : "false"}
                 />
               </div>
             </div>
@@ -474,6 +478,7 @@ export default function Hosts() {
                       value={hostUsername}
                       onChange={(e) => setHostUsername(e.target.value)}
                       disabled={loading}
+                      aria-invalid={attemptedSubmit && !hostUsername ? "true" : "false"}
                     />
                   </InputGroup>
                   <InputGroup className="bg-background">

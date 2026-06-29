@@ -18,7 +18,6 @@ import {
   PlusIcon,
   Folders,
   SettingsIcon,
-  CloudBackupIcon,
 } from "lucide-react";
 import logo from "@/assets/app-icon.png";
 import Icons from "@/components/icons";
@@ -66,11 +65,6 @@ export default function DashboardLayout({ children, sidebar = true }) {
       label: "Settings",
       icon: SettingsIcon,
       href: "/dashboard/settings",
-    },
-    {
-      label: "Backup",
-      icon: CloudBackupIcon,
-      href: "/dashboard/backup",
     },
   ];
   const TABS_ITEMS = [

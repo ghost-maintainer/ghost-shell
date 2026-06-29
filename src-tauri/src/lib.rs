@@ -1,6 +1,25 @@
 mod secure_store;
 mod ssh;
 mod vault;
+mod google_drive;
+mod supabase;
+
+fn trigger_cloud_sync(app: &AppHandle) {
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = supabase::push_vault_bytes(&app_clone).await {
+            eprintln!("Auto cloud sync failed: {}", e);
+        } else {
+            println!("Auto cloud sync completed successfully.");
+        }
+    });
+}
+
+fn write_vault_file(app: &AppHandle, path: &std::path::Path, bytes: Vec<u8>) -> Result<(), String> {
+    std::fs::write(path, bytes).map_err(|e| e.to_string())?;
+    trigger_cloud_sync(app);
+    Ok(())
+}
 
 use std::fs;
 use std::sync::Mutex;
@@ -47,36 +66,61 @@ fn try_auto_unlock(app: AppHandle, state: State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
-fn unlock(app: AppHandle, state: State<'_, AppState>, passphrase: String) -> Result<bool, String> {
+async fn unlock(app: AppHandle, state: State<'_, AppState>, passphrase: String) -> Result<bool, String> {
     let path = state.get_vault_path(&app)?;
     
-    if !path.exists() {
-        // First-time setup!
-        let mut salt = [0u8; 16];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut salt);
-        
-        let key = vault::derive_key(&passphrase, &salt);
-        let initial_vault = vault::VaultData::default();
-        
-        let encrypted_bytes = vault::encrypt_vault(&initial_vault, &key, &salt)?;
-        std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
-        
-        *state.master_key.lock().unwrap() = Some(key);
-        *state.salt.lock().unwrap() = Some(salt);
-        secure_store::save_session(&app, &key, &salt)?;
-        return Ok(true);
-    }
-    
-    // Decrypt existing file
-    match vault::decrypt_vault_file(&path, &passphrase) {
-        Ok((_vault_data, key, salt)) => {
-            *state.master_key.lock().unwrap() = Some(key);
-            *state.salt.lock().unwrap() = Some(salt);
-            secure_store::save_session(&app, &key, &salt)?;
-            Ok(true)
+    // Check if we are logged in to Supabase cloud sync
+    let supabase_config = supabase::load_config(&app);
+    let is_logged_in = supabase_config.session_token.is_some();
+
+    let mut vault_data = if path.exists() {
+        // Load local vault
+        let (data, _, _) = vault::decrypt_vault_file(&path, &passphrase)?;
+        data
+    } else {
+        vault::VaultData::default()
+    };
+
+    let (key, salt);
+
+    if is_logged_in {
+        // Pull, verify profile password, and merge row-by-row
+        let (derived_key, derived_salt) = supabase::pull_and_merge_vault(&app, &passphrase, &mut vault_data).await?;
+        key = derived_key;
+        salt = derived_salt;
+    } else {
+        // Offline mode
+        if path.exists() {
+            let (_, derived_key, derived_salt) = vault::decrypt_vault_file(&path, &passphrase)?;
+            key = derived_key;
+            salt = derived_salt;
+        } else {
+            // First time setup offline
+            let mut rand_salt = [0u8; 16];
+            rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut rand_salt);
+            key = vault::derive_key(&passphrase, &rand_salt);
+            salt = rand_salt;
         }
-        Err(e) => Err(e),
     }
+
+    // Encrypt and save vault locally
+    let encrypted_bytes = vault::encrypt_vault(&vault_data, &key, &salt)?;
+    write_vault_file(&app, &path, encrypted_bytes)?;
+
+    // Save session keys to memory and secure store
+    *state.master_key.lock().unwrap() = Some(key);
+    *state.salt.lock().unwrap() = Some(salt);
+    secure_store::save_session(&app, &key, &salt)?;
+
+    // Sync back up if cloud login is active
+    if is_logged_in {
+        let app_clone = app.clone();
+        tokio::spawn(async move {
+            let _ = supabase::push_vault_bytes(&app_clone).await;
+        });
+    }
+
+    Ok(true)
 }
 
 #[tauri::command]
@@ -139,7 +183,7 @@ fn add_key(app: AppHandle, state: State<'_, AppState>, entry: vault::KeyChainEnt
     vault_data.keys.push(entry);
     
     let encrypted_bytes = vault::encrypt_vault(&vault_data, key, salt)?;
-    std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+    write_vault_file(&app, &path, encrypted_bytes)?;
     Ok(())
 }
 
@@ -164,6 +208,7 @@ async fn generate_key(
     };
 
     let path = state.get_vault_path(&app)?;
+    let app_clone = app.clone();
 
     // RSA generation is CPU-bound and can take several seconds. Run the whole
     // generate + encrypt + write on a blocking thread so the UI (and the
@@ -197,7 +242,7 @@ async fn generate_key(
         vault_data.keys.push(entry.clone());
 
         let encrypted_bytes = vault::encrypt_vault(&vault_data, &key, &salt)?;
-        std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+        write_vault_file(&app_clone, &path, encrypted_bytes)?;
 
         Ok(entry)
     })
@@ -223,7 +268,7 @@ fn delete_key(app: AppHandle, state: State<'_, AppState>, id: usize) -> Result<(
     vault_data.keys.retain(|k| k.id != id);
     
     let encrypted_bytes = vault::encrypt_vault(&vault_data, key, salt)?;
-    std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+    write_vault_file(&app, &path, encrypted_bytes)?;
     Ok(())
 }
 
@@ -265,7 +310,7 @@ fn add_host(app: AppHandle, state: State<'_, AppState>, entry: vault::HostEntry)
     vault_data.hosts.push(entry);
     
     let encrypted_bytes = vault::encrypt_vault(&vault_data, key, salt)?;
-    std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+    write_vault_file(&app, &path, encrypted_bytes)?;
     Ok(())
 }
 
@@ -294,7 +339,7 @@ fn save_host_password(
     host.updated_at = chrono::Local::now().format("%Y-%m-%d").to_string();
 
     let encrypted_bytes = vault::encrypt_vault(&vault_data, key, salt)?;
-    std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+    write_vault_file(&app, &path, encrypted_bytes)?;
     Ok(())
 }
 
@@ -323,7 +368,7 @@ fn save_key_passphrase(
     entry.updated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let encrypted_bytes = vault::encrypt_vault(&vault_data, key, salt)?;
-    std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+    write_vault_file(&app, &path, encrypted_bytes)?;
     Ok(())
 }
 
@@ -343,7 +388,7 @@ fn delete_host(app: AppHandle, state: State<'_, AppState>, id: usize) -> Result<
     vault_data.hosts.retain(|h| h.id != id);
     
     let encrypted_bytes = vault::encrypt_vault(&vault_data, key, salt)?;
-    std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+    write_vault_file(&app, &path, encrypted_bytes)?;
     Ok(())
 }
 
@@ -418,7 +463,7 @@ fn import_vault(
     }
     
     let encrypted_bytes = vault::encrypt_vault(&current_vault, key, salt)?;
-    std::fs::write(&path, encrypted_bytes).map_err(|e| e.to_string())?;
+    write_vault_file(&app, &path, encrypted_bytes)?;
     
     Ok(format!("Successfully imported {} keys and {} hosts.", keys_imported, hosts_imported))
 }
@@ -506,6 +551,12 @@ pub fn run() {
                     "document.addEventListener('contextmenu',function(e){e.preventDefault();},{capture:true});",
                 );
             }
+            
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                google_drive::run_backup_loop(app_handle).await;
+            });
+
             Ok(())
         })
         .manage(AppState {
@@ -535,7 +586,23 @@ pub fn run() {
             ssh_write,
             ssh_resize,
             ssh_disconnect,
-            check_host_reachability
+            check_host_reachability,
+            google_drive::get_backup_config,
+            google_drive::save_backup_config,
+            google_drive::start_google_auth,
+            google_drive::disconnect_google,
+            google_drive::check_backup_on_drive,
+            google_drive::perform_manual_backup,
+            google_drive::restore_from_backup,
+            supabase::get_cloud_status,
+            supabase::set_offline_mode,
+            supabase::start_supabase_auth,
+            supabase::logout_supabase,
+            supabase::supabase_login_email,
+            supabase::supabase_register_email,
+            supabase::supabase_send_reset_password,
+            supabase::supabase_await_reset_redirect,
+            supabase::supabase_update_password
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
