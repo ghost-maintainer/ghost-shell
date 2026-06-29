@@ -184,12 +184,6 @@ generate_local_message() {
     fi
 }
 
-is_specific_message() {
-    local message="$1"
-    printf '%s' "$message" | grep -Eiq \
-        '\b(add|added|adding|remove|removed|implement|introduce|dropdown|menu|vault|keychain|hosts|login|button|component|page|skill|tauri|react|rust|ui|api)\b'
-}
-
 LOCAL_MESSAGE=$(generate_local_message)
 info "Local fallback message: ${LOCAL_MESSAGE}"
 
@@ -197,31 +191,23 @@ info "Local fallback message: ${LOCAL_MESSAGE}"
 # Prompt
 #########################################
 
+DIFF_STAT=$(git diff --cached --stat | head -n 40)
+
 PROMPT=$(cat <<EOF
 You are a senior software engineer at $COMPANY_NAME working on Ghost Shell.
 
-Write ONE generic Conventional Commit message for a project update.
+Write ONE concise and descriptive Conventional Commit message for the following staged changes.
 
-Context (areas touched, not specific files):
-- ${FILE_COUNT} files changed (+${INSERTIONS}/-${DELETIONS} lines)
-- ${CHANGE_SUMMARY//$'\n'/, }
+Context:
+Staged changes statistics:
+${DIFF_STAT}
 
 Rules:
-- Maximum 6 words after the type prefix.
-- No body. No quotes. No explanation.
+- Formatted as: <type>: <description> (e.g. feat: resolve terminal reconnect loop)
+- The description (after the type prefix) must be a concise, lowercase summary of the actual update (around 20-30 characters long).
 - Lowercase type: feat, fix, refactor, docs, style, chore, perf, test, ci, build
-- Describe the overall project update only.
-- Do NOT name files, components, screens, libraries, or individual features.
-- Do NOT use words like add, remove, implement, introduce, improve, or fix <thing>.
-- Prefer broad phrases like "application update", "project update", "client update", "backend update", "pipeline update".
-
-Good examples:
-- feat: application update
-- chore: project maintenance
-- ci: pipeline update
-- docs: project documentation update
-
-Return ONLY the commit message.
+- No body. No quotes. No explanation.
+- Return ONLY the commit message.
 EOF
 )
 
@@ -366,12 +352,6 @@ else
                 continue
             fi
 
-            # Too specific
-            if is_specific_message "$COMMIT_MESSAGE"; then
-                warn "API message too specific — rejected"
-                info "Rejected: \"${COMMIT_MESSAGE}\""
-                continue
-            fi
 
             SUCCESS=1
             break
