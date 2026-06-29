@@ -296,7 +296,7 @@ export default function Login() {
         /* STEP 1: SYNC CHOICE SETUP (EMAIL & OAUTH SIGN IN) */
         <div className="max-w-sm w-full space-y-4 px-4 flex flex-col items-center">
           <div className="text-center space-y-1">
-            <h2 className="text-lg font-bold text-foreground">Welcome to GhostShell</h2>
+            <h2 className="text-lg font-bold text-foreground">Welcome to Ghost Shell</h2>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Sign in to enable zero-knowledge cloud sync, or continue offline.
             </p>

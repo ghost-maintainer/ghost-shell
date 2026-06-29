@@ -1,8 +1,8 @@
 [package]
 name = "ghost-shell"
 version = "1.0.0"
-description = "A cross-platform SSH/SFTP client built with Tauri and React."
-authors = ["GhostCompiler"]
+description = "Ghost Shell — a cross-platform SSH/SFTP client by Ghost Compiler."
+authors = ["Ghost Compiler"]
 license-file = "../LICENSE"
 repository = "https://github.com/ghost-maintainer/ghost-shell"
 edition = "2021"

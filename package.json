@@ -1,7 +1,11 @@
 {
   "name": "ghost-shell",
+  "displayName": "Ghost Shell",
   "private": true,
   "version": "1.0.0",
+  "description": "A fast, cross-platform SSH and SFTP client by Ghost Compiler.",
+  "author": "Ghost Compiler",
+  "homepage": "https://github.com/ghost-maintainer/ghost-shell",
   "type": "module",
   "scripts": {
     "dev": "vite",
