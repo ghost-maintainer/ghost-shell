@@ -30,21 +30,10 @@ CREATE TABLE IF NOT EXISTS public.user_keys (
     CONSTRAINT user_keys_pkey PRIMARY KEY (user_id, key_id)
 );
 
--- 4. USER LOGS TABLE (New)
-CREATE TABLE IF NOT EXISTS public.user_logs (
-    user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    session_id text NOT NULL,
-    encrypted_data text NOT NULL,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    CONSTRAINT user_logs_pkey PRIMARY KEY (user_id, session_id)
-);
-
 -- ENABLE ROW LEVEL SECURITY (RLS) ON ALL TABLES
 ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_hosts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_keys ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_logs ENABLE ROW LEVEL SECURITY;
 
 -- CREATE SECURITY POLICIES FOR USER-SPECIFIC READ/WRITE ACCESS
 -- User Profiles Policies
@@ -57,8 +46,4 @@ CREATE POLICY "Allow individual read/write access to hosts" ON public.user_hosts
 
 -- User Keys Policies
 CREATE POLICY "Allow individual read/write access to keys" ON public.user_keys
-    FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
--- User Logs Policies
-CREATE POLICY "Allow individual read/write access to logs" ON public.user_logs
     FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
