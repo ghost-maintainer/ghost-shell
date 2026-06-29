@@ -52,7 +52,7 @@ set +a
 : "${API_MODEL:?Set API_MODEL in .env}"
 : "${API_KEY:?Set API_KEY in .env}"
 
-API_URL="https://integrate.api.nvidia.com/v1/chat/completions"
+API_URL="https://api.z.ai/api/paas/v4/chat/completions"
 API_CONNECT_TIMEOUT="${API_CONNECT_TIMEOUT:-10}"
 API_MAX_TIME="${API_MAX_TIME:-30}"
 COMPANY_NAME="Ghost Compiler"
@@ -231,11 +231,11 @@ MESSAGE_SOURCE="local"
 step "Generating commit message"
 
 if [ "${SKIP_API:-0}" = "1" ]; then
-    warn "SKIP_API=1 — skipping NVIDIA API"
+    warn "SKIP_API=1 — skipping Z.AI API"
     COMMIT_MESSAGE="$LOCAL_MESSAGE"
     ok "Using local message"
 else
-    info "Calling NVIDIA API (${API_URL})"
+    info "Calling Z.AI API (${API_URL})"
     info "Waiting up to ${API_MAX_TIME}s for response..."
 
     API_RESPONSE_FILE=$(mktemp)
@@ -248,7 +248,7 @@ else
             --max-time "$API_MAX_TIME" \
             -o "$API_RESPONSE_FILE" \
             -w "%{http_code}" \
-            "$API_URL" \
+            -X POST "$API_URL" \
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" \
             -d "$(jq -n \
@@ -258,7 +258,7 @@ else
                   model: $model,
                   temperature: 0.1,
                   max_tokens: 60,
-                  chat_template_kwargs: { enable_thinking: false },
+                  thinking: { type: "disabled" },
                   messages: [{ role: "user", content: $prompt }]
                 }')"
     )
@@ -283,7 +283,7 @@ else
         COMMIT_MESSAGE="$LOCAL_MESSAGE"
     elif [[ "$HTTP_CODE" != 2* ]]; then
         warn "API returned HTTP ${HTTP_CODE} — using local fallback"
-        API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
+        API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .error.code then (.error.code | tostring) + ": " + .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
         if [ -n "$API_ERROR" ]; then
             fail "API error: ${API_ERROR}"
         else
@@ -312,7 +312,7 @@ else
                 fail "Model returned only reasoning_content, no final content."
                 info "Reasoning (truncated): $(echo "$REASONING_RAW" | tr -d '\n' | cut -c1-200)..."
             else
-                API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
+                API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .error.code then (.error.code | tostring) + ": " + .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
                 [ -n "$API_ERROR" ] && fail "API error: ${API_ERROR}"
             fi
             info "Tip: run with DEBUG_API=1 to see the full raw response body."
