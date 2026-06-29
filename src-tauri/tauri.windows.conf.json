@@ -4,7 +4,17 @@
       "digestAlgorithm": "sha256",
       "timestampUrl": "http://timestamp.digicert.com",
       "tsp": false,
-      "signCommand": "powershell -ExecutionPolicy Bypass -File ../../scripts/sign-windows.ps1 %1",
+      "signCommand": {
+        "cmd": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "scripts/sign-windows.ps1",
+          "%1"
+        ]
+      },
       "nsis": {
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico"

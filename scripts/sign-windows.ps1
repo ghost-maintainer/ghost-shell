@@ -21,8 +21,25 @@ $timestamp = if ($env:WINDOWS_SIGN_TIMESTAMP_URL) {
   "http://timestamp.digicert.com"
 }
 
+$signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue
+if (-not $signtool) {
+  $sdkSignTool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -match "x64\\signtool\.exe$" } |
+    Sort-Object FullName -Descending |
+    Select-Object -First 1
+  if ($sdkSignTool) {
+    $signtool = $sdkSignTool.FullName
+  }
+}
+
+if (-not $signtool) {
+  Write-Host "signtool.exe not found — skipping Authenticode signing."
+  exit 0
+}
+
 Write-Host "Signing $BinaryPath"
-& signtool sign /fd SHA256 /f $pfx /p $password /tr $timestamp /td SHA256 $BinaryPath
+& $signtool sign /fd SHA256 /f $pfx /p $password /tr $timestamp /td SHA256 $BinaryPath
 if ($LASTEXITCODE -ne 0) {
-  throw "signtool failed with exit code $LASTEXITCODE"
+  Write-Error "signtool failed with exit code $LASTEXITCODE"
+  exit $LASTEXITCODE
 }
