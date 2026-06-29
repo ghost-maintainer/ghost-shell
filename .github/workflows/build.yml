@@ -22,6 +22,7 @@ concurrency:
 
 permissions:
   contents: write # needed for the optional release step on tags
+  actions: write # needed to delete previous workflow runs/logs
 
 jobs:
   build:
@@ -224,3 +225,11 @@ jobs:
             ghost-shell-macos-*
           useGlob: true
           failOnError: false
+
+      - name: Delete previous workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --workflow "${{ github.workflow }}" --json databaseId --limit 100 | \
+            jq -r '.[] | select(.databaseId != '${{ github.run_id }}') | .databaseId' | \
+            xargs -I {} gh run delete {} || true
