@@ -1,5 +1,13 @@
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
   ButtonGroup,
   ButtonGroupSeparator,
 } from "@/components/ui/button-group";
@@ -46,7 +54,7 @@ import { cn } from "@/lib/utils";
 const IS_MAC =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent);
 
-export default function DashboardLayout({ children, sidebar = true }) {
+export default function DashboardLayout({ children, sidebar = true, className = "" }) {
   const { theme, setTheme } = useTheme();
   const { wipeData } = useSecurity();
   const { sessions, activeId, setActive, closeSession } = useTerminals();
@@ -88,11 +96,6 @@ export default function DashboardLayout({ children, sidebar = true }) {
       label: "Keychain",
       icon: LockIcon,
       href: "/dashboard/keys",
-    },
-    {
-      label: "Logs",
-      icon: LogsIcon,
-      href: "/dashboard/logs",
     },
   ];
   const TABS_ITEMS = [
@@ -387,7 +390,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
                 {isOnline ? (
                   <DropdownMenuItem
                     onClick={() => navigate("/dashboard/password-update")}
-                    className="cursor-pointer gap-2 py-1.5 text-xs"
+                    className="cursor-pointer text-xs"
                   >
                     <Key className="size-3.5 my-auto" />
                     <span>Password Update</span>
@@ -395,7 +398,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
                 ) : (
                   <DropdownMenuItem
                     onClick={() => navigate("/dashboard/login")}
-                    className="cursor-pointer gap-2 py-1.5 text-xs font-semibold text-primary"
+                    className="cursor-pointer text-xs font-semibold text-primary"
                   >
                     <User className="size-3.5 my-auto" />
                     <span>Sign In / Sync</span>
@@ -403,7 +406,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
                 )}
                 <DropdownMenuItem
                   onClick={() => navigate("/dashboard/master-password")}
-                  className="cursor-pointer gap-2 py-1.5 text-xs"
+                  className="cursor-pointer text-xs"
                 >
                   <LockIcon className="size-3.5 my-auto" />
                   <span>Master Password</span>
@@ -411,22 +414,23 @@ export default function DashboardLayout({ children, sidebar = true }) {
                 <div className="border-t my-1" />
                 <DropdownMenuItem
                   onClick={() => navigate("/dashboard/export-data")}
-                  className="cursor-pointer gap-2 py-1.5 text-xs"
+                  className="cursor-pointer text-xs"
                 >
                   <Download className="size-3.5 my-auto" />
                   <span>Export Data</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => navigate("/dashboard/import-data")}
-                  className="cursor-pointer gap-2 py-1.5 text-xs"
+                  className="cursor-pointer text-xs"
                 >
                   <Upload className="size-3.5 my-auto" />
                   <span>Import Data</span>
                 </DropdownMenuItem>
                 <div className="border-t my-1" />
                 <DropdownMenuItem
+                  variant="destructive"
                   onClick={() => setShowWipeConfirm(true)}
-                  className="cursor-pointer gap-2 py-1.5 text-xs text-destructive hover:text-destructive"
+                  className="cursor-pointer text-xs"
                 >
                   <LogOut className="size-3.5 my-auto" />
                   <span>Logout</span>
@@ -481,7 +485,6 @@ export default function DashboardLayout({ children, sidebar = true }) {
                     })}
                   </ul>
                 </div>
-                <div className="mt-auto"></div>
               </aside>
             )}
             <main
@@ -489,6 +492,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
               className={cn(
                 "flex-1 min-h-0 min-w-0",
                 terminalActive ? "hidden" : "",
+                className,
               )}
             >
               {children}
@@ -500,6 +504,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
             className={cn(
               "flex-1 min-h-0 min-w-0",
               terminalActive ? "hidden" : "p-3",
+              className,
             )}
           >
             {children}
@@ -507,37 +512,37 @@ export default function DashboardLayout({ children, sidebar = true }) {
         )}
       </div>
 
-      {showWipeConfirm && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="border bg-sidebar p-6 rounded-xl max-w-md w-full shadow-lg space-y-4 m-4 animate-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-bold text-destructive">
+      <Dialog open={showWipeConfirm} onOpenChange={setShowWipeConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-destructive">
               Logout & Clear Local Data?
-            </h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">
+            </DialogTitle>
+            <DialogDescription>
               Are you sure you want to log out? This will completely wipe all
-              local hosts, credentials, and terminal logs from this device. Your
-              remote database data in Supabase remains safe.
-            </p>
-            <div className="flex gap-2 justify-end pt-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowWipeConfirm(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  setShowWipeConfirm(false);
-                  handleLogout();
-                }}
-              >
-                Logout and Wipe Local
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+              local hosts and credentials from this device. Your
+              remote data will remain safe.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 justify-end pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowWipeConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setShowWipeConfirm(false);
+                handleLogout();
+              }}
+            >
+              Logout and Wipe Local
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

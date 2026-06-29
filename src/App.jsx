@@ -3,7 +3,7 @@ import Hosts from "./pages/hosts";
 import Keys from "./pages/keychain";
 import SftpTab from "./pages/sftp-tab";
 import AddHosts from "./pages/add-hosts";
-import Logs from "./pages/logs";
+
 import ExportData from "./pages/export-data";
 import ImportData from "./pages/import-data";
 import WipeData from "./pages/wipe-data";
@@ -88,14 +88,7 @@ export default function App() {
                 </AuthGuard>
               }
             />
-            <Route
-              path="/dashboard/logs"
-              element={
-                <AuthGuard>
-                  <Logs />
-                </AuthGuard>
-              }
-            />
+
             <Route
               path="/dashboard/export-data"
               element={

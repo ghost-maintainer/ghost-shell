@@ -15,18 +15,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ghost-maintainer/ghost-shell/stargazers">
-    <img src="https://img.shields.io/github/stars/ghost-maintainer/ghost-shell?style=for-the-badge&logo=github" alt="GitHub stars">
-  </a>
-  <a href="https://github.com/ghost-maintainer/ghost-shell/releases/latest">
-    <img src="https://img.shields.io/github/v/release/ghost-maintainer/ghost-shell?style=for-the-badge&logo=github" alt="Latest release">
-  </a>
-  <a href="https://github.com/ghost-maintainer/ghost-shell/actions/workflows/build.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/ghost-maintainer/ghost-shell/build.yml?style=for-the-badge&logo=githubactions&logoColor=white" alt="Build status">
-  </a>
-  <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/ghost-maintainer/ghost-shell?style=for-the-badge" alt="License">
-  </a>
+  <a href="https://github.com/ghost-maintainer/ghost-shell/stargazers"><img src="https://img.shields.io/github/stars/ghost-maintainer/ghost-shell?style=for-the-badge&logo=github" alt="GitHub stars"></a>
+  <a href="https://github.com/ghost-maintainer/ghost-shell/releases/latest"><img src="https://img.shields.io/github/v/release/ghost-maintainer/ghost-shell?style=for-the-badge&logo=github" alt="Latest release"></a>
+  <a href="https://github.com/ghost-maintainer/ghost-shell/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ghost-maintainer/ghost-shell/build.yml?style=for-the-badge&logo=githubactions&logoColor=white" alt="Build status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ghost-maintainer/ghost-shell?style=for-the-badge" alt="License"></a>
 </p>
 
 <p align="center">

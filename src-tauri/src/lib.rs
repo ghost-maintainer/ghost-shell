@@ -3,6 +3,7 @@ mod ssh;
 mod vault;
 mod google_drive;
 mod supabase;
+mod sftp;
 
 fn trigger_cloud_sync(app: &AppHandle) {
     let app_clone = app.clone();
@@ -661,6 +662,7 @@ pub fn run() {
             salt: Mutex::new(None),
         })
         .manage(ssh::SshManager::default())
+        .manage(sftp::SftpManager::default())
         .invoke_handler(tauri::generate_handler![
             is_unlocked,
             vault_exists,
@@ -706,7 +708,19 @@ pub fn run() {
             supabase::supabase_update_email,
             supabase::supabase_wipe_cloud_data,
             supabase::sync_logs,
-            change_master_password
+            supabase::sync_single_log,
+            supabase::supabase_delete_log,
+            change_master_password,
+            sftp::sftp_connect,
+            sftp::sftp_disconnect,
+            sftp::sftp_list_dir,
+            sftp::sftp_create_dir,
+            sftp::sftp_create_file,
+            sftp::sftp_edit_file,
+            sftp::sftp_delete,
+            sftp::sftp_rename,
+            sftp::sftp_copy_file,
+            sftp::sftp_download
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

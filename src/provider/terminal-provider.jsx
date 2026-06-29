@@ -14,7 +14,8 @@ import {
   updateSessionRecord,
 } from "@/lib/session-history";
 
-export const TerminalContext = React.createContext(null);
+import { TerminalContext } from "../context/terminal-context";
+
 const STORAGE_KEY = "ghost-shell-terminal-sessions";
 
 function getXtermTheme() {
@@ -228,25 +229,35 @@ export function TerminalProvider({ children }) {
   const closeSession = React.useCallback(
     (id) => {
       flushRuntimeLog(id);
-      persistNow(true);
-      finalizeSessionRecord(id, "closed");
-      invoke("ssh_disconnect", { sessionId: id }).catch(() => {});
+      
       const runtime = runtimesRef.current.get(id);
       if (runtime) {
         runtime.term.dispose();
         runtimesRef.current.delete(id);
       }
       connectQueueRef.current.delete(id);
-      setSessions((prev) => {
-        const next = prev.filter((s) => s.id !== id);
-        if (activeId === id) {
-          setActiveId(next.length ? next[next.length - 1].id : null);
-        }
-        return next;
-      });
+      finalizeSessionRecord(id, "closed");
+      invoke("ssh_disconnect", { sessionId: id }).catch(() => {});
+
+      const filteredSessions = sessionsRef.current.filter((s) => s.id !== id);
+      const nextActiveId = activeIdRef.current === id 
+        ? (filteredSessions.length ? filteredSessions[filteredSessions.length - 1].id : null)
+        : activeIdRef.current;
+
+      // Persist the filtered sessions list immediately!
+      if (filteredSessions.length === 0) {
+        clearPersistedState();
+      } else {
+        savePersistedState(filteredSessions, nextActiveId, runtimesRef, {
+          captureBuffers: true,
+        });
+      }
+
+      setSessions(filteredSessions);
+      setActiveId(nextActiveId);
       setAuthPrompt((prev) => (prev?.sessionId === id ? null : prev));
     },
-    [activeId, persistNow, flushRuntimeLog],
+    [flushRuntimeLog],
   );
 
   const updateSession = React.useCallback((id, patch) => {

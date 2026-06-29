@@ -135,7 +135,7 @@ export default function TerminalView() {
   return (
     <>
       <div
-        className="fixed z-40 flex flex-col bg-background overflow-hidden"
+        className="fixed z-40 flex flex-col bg-background terminal-surface overflow-hidden"
         style={{
           top: overlayRect.top,
           left: overlayRect.left,
@@ -181,7 +181,7 @@ export default function TerminalView() {
           </div>
         </div>
 
-        <div className="relative flex-1 min-h-0 min-w-0 bg-[#141414]">
+        <div className="relative flex-1 min-h-0 min-w-0 bg-background terminal-surface">
           {sessions.map((session) => (
             <div
               key={session.id}
@@ -189,7 +189,7 @@ export default function TerminalView() {
                 if (el) mountRefs.current.set(session.id, el);
                 else mountRefs.current.delete(session.id);
               }}
-              className="absolute inset-0 min-h-0 min-w-0"
+              className="absolute inset-0 min-h-0 min-w-0 terminal-surface"
               style={{
                 zIndex: session.id === activeId ? 2 : 1,
                 opacity: session.id === activeId ? 1 : 0,

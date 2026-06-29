@@ -84,7 +84,7 @@ export default function Login() {
     const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
 
     if (!supabaseUrl.trim() || !supabaseKey.trim()) {
-      setError("Supabase configuration is missing in the .env file.");
+      setError("Sorry, but remote login is not available. Please use the offline mode instead.");
       return;
     }
 
@@ -121,7 +121,7 @@ export default function Login() {
     const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
 
     if (!supabaseUrl.trim() || !supabaseKey.trim()) {
-      setError("Supabase configuration is missing in the .env file.");
+      setError("Remote sync configuration is missing in the .env file.");
       return;
     }
 
@@ -169,7 +169,7 @@ export default function Login() {
     const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
 
     if (!supabaseUrl.trim() || !supabaseKey.trim()) {
-      setError("Supabase configuration is missing in the .env file.");
+      setError("Sorry, but remote registration is not available. Please use the offline mode instead.");
       return;
     }
 
@@ -212,7 +212,7 @@ export default function Login() {
     const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
 
     if (!supabaseUrl.trim() || !supabaseKey.trim()) {
-      setError("Supabase configuration is missing in the .env file.");
+      setError("Sorry, but remote password reset is not available. Please use the offline mode instead.");
       return;
     }
 

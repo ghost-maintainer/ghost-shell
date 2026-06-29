@@ -1,5 +1,5 @@
 import React from "react";
-import { TerminalContext } from "@/provider/terminal-provider";
+import { TerminalContext } from "../context/terminal-context";
 
 export function useTerminals() {
   const ctx = React.useContext(TerminalContext);

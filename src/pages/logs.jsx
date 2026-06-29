@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/layouts/dashboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,18 +7,13 @@ import {
   SearchIcon,
   TerminalIcon,
   ClockIcon,
-  ServerIcon,
   Trash2,
-  PlugZap,
+  Loader2,
 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
-import { useTerminals } from "@/hooks/use-terminals";
 import {
   listSessionHistory,
   previewLog,
-  getSessionLog,
   deleteSessionLog,
-  stripAnsi,
   triggerLogSync,
 } from "@/lib/session-history";
 
@@ -46,12 +42,9 @@ const STATUS_LABEL = {
 };
 
 export default function Logs() {
-  const { openSession } = useTerminals();
+  const navigate = useNavigate();
   const [records, setRecords] = React.useState([]);
   const [search, setSearch] = React.useState("");
-  const [selectedId, setSelectedId] = React.useState(null);
-  const [selectedLog, setSelectedLog] = React.useState(null);
-  const [selectedLogContent, setSelectedLogContent] = React.useState("");
 
   const refresh = React.useCallback(() => {
     setRecords(listSessionHistory());
@@ -72,51 +65,10 @@ export default function Logs() {
     };
   }, [refresh]);
 
-  React.useEffect(() => {
-    if (!selectedId) {
-      setSelectedLog(null);
-      setSelectedLogContent("");
-      return;
-    }
-    setSelectedLog(getSessionLog(selectedId));
-
-    // Load full log content asynchronously from disk
-    invoke("get_session_log_content", { sessionId: selectedId })
-      .then((content) => {
-        setSelectedLogContent(content || "");
-      })
-      .catch((err) => {
-        console.error("Failed to load session log content:", err);
-        setSelectedLogContent("Failed to load session log content from disk.");
-      });
-  }, [selectedId, records]);
-
   const handleDelete = (id, e) => {
     e?.stopPropagation();
     deleteSessionLog(id);
-    if (selectedId === id) setSelectedId(null);
     refresh();
-  };
-
-  const handleReconnect = async (record) => {
-    try {
-      const hosts = await invoke("get_hosts");
-      let host = hosts.find((h) => h.id === record.hostId);
-      if (!host) {
-        host = {
-          id: record.hostId,
-          name: record.hostName,
-          address: record.hostAddress,
-          port: record.port,
-          username: record.username,
-          key_id: record.key_id ?? null,
-        };
-      }
-      openSession(host);
-      setSelectedId(null);
-    } catch (err) {
-      console.error("Failed to reconnect:", err);
-    }
   };
 
   const filtered = records.filter((r) => {
@@ -129,8 +81,6 @@ export default function Logs() {
       r.preview?.toLowerCase().includes(q)
     );
   });
-
-  const selected = selectedLog;
 
   return (
     <DashboardLayout>
@@ -161,10 +111,10 @@ export default function Logs() {
                   key={record.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => setSelectedId(record.id)}
+                  onClick={() => navigate(`/dashboard/log-details/${record.id}`)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
-                      setSelectedId(record.id);
+                      navigate(`/dashboard/log-details/${record.id}`);
                     }
                   }}
                   className="text-left border rounded-lg p-4 bg-card hover:bg-muted/40 transition-colors space-y-3 cursor-pointer"
@@ -178,7 +128,13 @@ export default function Logs() {
                         {record.username}@{record.hostAddress}:{record.port}
                       </p>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
+                      {record.syncStatus === "uploading" && (
+                        <Loader2 className="size-3.5 animate-spin text-primary" />
+                      )}
+                      {record.syncStatus === "done" && (
+                        <span className="size-2 rounded-full bg-green-500 shrink-0" title="Synced to cloud" />
+                      )}
                       <span
                         className={`text-[10px] px-1.5 py-0.5 rounded ${
                           record.status === "active" ||
@@ -219,61 +175,6 @@ export default function Logs() {
           </div>
         )}
       </div>
-
-      {selectedId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-5xl h-[85vh] flex flex-col border rounded-lg bg-background shadow-xl overflow-hidden">
-            <div className="h-10 shrink-0 border-b bg-muted/80 px-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <ServerIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="text-xs font-medium truncate">
-                  {selected?.hostName ?? "Session Log"}
-                </span>
-                <span className="text-[10px] text-muted-foreground truncate hidden sm:inline">
-                  {selected
-                    ? `${selected.username}@${selected.hostAddress}:${selected.port} · ${formatDate(selected.startedAt)}`
-                    : ""}
-                </span>
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                {selected && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => handleReconnect(selected)}
-                  >
-                    <PlugZap className="size-3" />
-                    Reconnect
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-                  onClick={() => handleDelete(selectedId)}
-                >
-                  <Trash2 className="size-3" />
-                  Delete
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => setSelectedId(null)}
-                >
-                  Close
-                </Button>
-              </div>
-            </div>
-            <div className="flex-1 min-h-0 overflow-auto bg-[#141414] p-4">
-              <pre className="text-xs font-mono text-[#e5e5e5] whitespace-pre-wrap break-words leading-relaxed">
-                {stripAnsi(selectedLogContent) || "Loading log content..."}
-              </pre>
-            </div>
-          </div>
-        </div>
-      )}
     </DashboardLayout>
   );
 }

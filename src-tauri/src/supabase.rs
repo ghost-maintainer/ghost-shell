@@ -1056,49 +1056,7 @@ pub async fn sync_logs(
     let app_data_dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
     let logs_dir = app_data_dir.join("logs");
 
-    // 1. Push local records
-    for record in &local_records {
-        let session_id = record.get("id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "Missing 'id' in log record".to_string())?;
-
-        // Read log content from disk file
-        let log_file_path = logs_dir.join(format!("{}.log", session_id));
-        let log_content = if log_file_path.exists() {
-            std::fs::read_to_string(&log_file_path).unwrap_or_default()
-        } else {
-            String::new()
-        };
-
-        // Bundle log content into the record before encryption
-        let mut full_record = record.clone();
-        if let Some(obj) = full_record.as_object_mut() {
-            obj.insert("log".to_string(), serde_json::Value::String(log_content));
-        }
-
-        let encrypted_log = vault::encrypt_record(&full_record, &master_key)?;
-        let log_body = serde_json::json!({
-            "user_id": user_id,
-            "session_id": session_id,
-            "encrypted_data": encrypted_log
-        });
-
-        let log_res = client
-            .post(format!("{}/rest/v1/user_logs", config.url))
-            .header("apikey", &config.anon_key)
-            .header("Authorization", format!("Bearer {}", new_access))
-            .header("Content-Type", "application/json")
-            .header("Prefer", "resolution=merge-duplicates")
-            .json(&log_body)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if !log_res.status().is_success() {
-            let err = log_res.text().await.unwrap_or_default();
-            return Err(format!("Failed to sync log {}: {}", session_id, err));
-        }
-    }
+    // 1. Push phase is skipped here as logs are synced one-by-one via sync_single_log.
 
     // 2. Clean up deleted logs in the cloud
     let local_session_ids: Vec<String> = local_records
@@ -1155,7 +1113,11 @@ pub async fn sync_logs(
                                 .and_then(|v| v.as_str())
                                 .unwrap_or_default();
                             
-                            let log_file_path = logs_dir.join(format!("{}.log", session_id));
+                            let file_name = decrypted_record.get("logFileName")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(&session_id);
+                            
+                            let log_file_path = logs_dir.join(format!("{}.log", file_name));
                             std::fs::write(&log_file_path, log_content).map_err(|e| e.to_string())?;
 
                             // Remove log content from metadata object
@@ -1172,6 +1134,130 @@ pub async fn sync_logs(
     }
 
     Ok(merged_records)
+}
+
+#[tauri::command]
+pub async fn sync_single_log(
+    app: AppHandle,
+    record: serde_json::Value,
+) -> Result<(), String> {
+    let mut config = load_config(&app);
+    if config.session_token.is_none() {
+        return Ok(()); // Offline mode
+    }
+    let refresh_token = config.refresh_token.as_ref().unwrap();
+
+    let state = app.state::<crate::AppState>();
+    let master_key_opt = *state.master_key.lock().unwrap();
+    let (master_key, _) = match (master_key_opt, *state.salt.lock().unwrap()) {
+        (Some(k), Some(s)) => (k, s),
+        _ => return Err("Vault is locked".to_string()),
+    };
+
+    // Refresh token first
+    let (new_access, new_refresh, email, user_id) = match refresh_session(&config.url, &config.anon_key, refresh_token).await {
+        Ok(res) => res,
+        Err(e) => return Err(format!("Failed to refresh Supabase session before single sync: {}", e)),
+    };
+    config.session_token = Some(new_access.clone());
+    config.refresh_token = Some(new_refresh);
+    config.user_email = Some(email);
+    config.user_id = Some(user_id.clone());
+    save_config(&app, &config)?;
+
+    let client = reqwest::Client::new();
+    let app_data_dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    let logs_dir = app_data_dir.join("logs");
+
+    let session_id = record.get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing 'id' in log record".to_string())?;
+
+    let file_name = record.get("logFileName")
+        .and_then(|v| v.as_str())
+        .unwrap_or(session_id);
+
+    // Read log content from disk file
+    let log_file_path = logs_dir.join(format!("{}.log", file_name));
+    let log_content = if log_file_path.exists() {
+        std::fs::read_to_string(&log_file_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    // Bundle log content into the record before encryption
+    let mut full_record = record.clone();
+    if let Some(obj) = full_record.as_object_mut() {
+        obj.insert("log".to_string(), serde_json::Value::String(log_content));
+    }
+
+    let encrypted_log = vault::encrypt_record(&full_record, &master_key)?;
+    let log_body = serde_json::json!({
+        "user_id": user_id,
+        "session_id": session_id,
+        "encrypted_data": encrypted_log
+    });
+
+    let log_res = client
+        .post(format!("{}/rest/v1/user_logs", config.url))
+        .header("apikey", &config.anon_key)
+        .header("Authorization", format!("Bearer {}", new_access))
+        .header("Content-Type", "application/json")
+        .header("Prefer", "resolution=merge-duplicates")
+        .json(&log_body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !log_res.status().is_success() {
+        let err = log_res.text().await.unwrap_or_default();
+        return Err(format!("Failed to sync log {}: {}", session_id, err));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn supabase_delete_log(
+    app: AppHandle,
+    session_id: String,
+) -> Result<(), String> {
+    let mut config = load_config(&app);
+    if config.session_token.is_none() {
+        return Ok(()); // Offline mode
+    }
+    let refresh_token = config.refresh_token.as_ref().unwrap();
+
+    let state = app.state::<crate::AppState>();
+    let unlocked = *state.master_key.lock().unwrap();
+    if unlocked.is_none() {
+        return Err("Vault is locked".to_string());
+    }
+
+    // Refresh token first
+    let (new_access, new_refresh, _, user_id) = match refresh_session(&config.url, &config.anon_key, refresh_token).await {
+        Ok(res) => res,
+        Err(e) => return Err(format!("Failed to refresh Supabase session for log deletion: {}", e)),
+    };
+    config.session_token = Some(new_access.clone());
+    config.refresh_token = Some(new_refresh);
+    save_config(&app, &config)?;
+
+    let client = reqwest::Client::new();
+    let delete_res = client
+        .delete(format!("{}/rest/v1/user_logs?user_id=eq.{}&session_id=eq.{}", config.url, user_id, session_id))
+        .header("apikey", &config.anon_key)
+        .header("Authorization", format!("Bearer {}", new_access))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !delete_res.status().is_success() {
+        let err = delete_res.text().await.unwrap_or_default();
+        return Err(format!("Failed to delete cloud log: {}", err));
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

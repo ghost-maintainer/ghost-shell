@@ -14,12 +14,19 @@ use crate::AppState;
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SshEvent {
+    #[serde(rename = "status")]
     Status { stage: String, message: String },
+    #[serde(rename = "connected")]
     Connected,
+    #[serde(rename = "data")]
     Data { bytes: Vec<u8> },
+    #[serde(rename = "closed")]
     Closed { message: String },
+    #[serde(rename = "error")]
     Error { message: String },
+    #[serde(rename = "needPassword")]
     NeedPassword,
+    #[serde(rename = "needPassphrase")]
     NeedPassphrase,
 }
 
@@ -75,7 +82,7 @@ impl SshManager {
     }
 }
 
-struct ClientHandler;
+pub struct ClientHandler;
 
 impl Handler for ClientHandler {
     type Error = russh::Error;
@@ -88,21 +95,21 @@ impl Handler for ClientHandler {
     }
 }
 
-fn emit(ch: &Channel<SshEvent>, event: SshEvent) {
-    let _ = ch.send(event);
+fn emit(ch: &Channel<SshEvent>, event: SshEvent) -> Result<(), String> {
+    ch.send(event).map_err(|e| e.to_string())
 }
 
-fn emit_status(ch: &Channel<SshEvent>, stage: &str, message: &str) {
+fn emit_status(ch: &Channel<SshEvent>, stage: &str, message: &str) -> Result<(), String> {
     emit(
         ch,
         SshEvent::Status {
             stage: stage.to_string(),
             message: message.to_string(),
         },
-    );
+    )
 }
 
-fn load_host(
+pub(crate) fn load_host(
     app: &AppHandle,
     state: &State<'_, AppState>,
     host_id: usize,
@@ -130,7 +137,7 @@ fn load_host(
     Ok((host, key))
 }
 
-async fn authenticate(
+pub(crate) async fn authenticate(
     session: &mut client::Handle<ClientHandler>,
     host: &HostEntry,
     key_pem: Option<&str>,
@@ -233,15 +240,20 @@ pub async fn connect(
         .await;
 
         if let Err(e) = result {
+            if e.contains("ChannelClosed") || e.contains("callback") || e.contains("Callback") {
+                return;
+            }
             match e.as_str() {
-                "NeedPassword" => emit(&on_event, SshEvent::NeedPassword),
-                "NeedPassphrase" => emit(&on_event, SshEvent::NeedPassphrase),
-                _ => emit(
-                    &on_event,
-                    SshEvent::Error {
-                        message: e,
-                    },
-                ),
+                "NeedPassword" => { let _ = emit(&on_event, SshEvent::NeedPassword); }
+                "NeedPassphrase" => { let _ = emit(&on_event, SshEvent::NeedPassphrase); }
+                _ => {
+                    let _ = emit(
+                        &on_event,
+                        SshEvent::Error {
+                            message: e,
+                        },
+                    );
+                }
             }
         }
     });
@@ -267,18 +279,18 @@ async fn run_session(
             "Connecting to {}@{}:{}",
             host.username, host.address, host.port
         ),
-    );
+    )?;
 
     let addr = format!("{}:{}", host.address, host.port);
     let config = Arc::new(Config::default());
 
-    emit_status(on_event, "tcp", "Opening TCP connection...");
+    emit_status(on_event, "tcp", "Opening TCP connection...")?;
     let mut session = client::connect(config, addr.as_str(), ClientHandler)
         .await
         .map_err(|e| format!("TCP connect failed: {e}"))?;
 
-    emit_status(on_event, "handshake", "SSH handshake / key exchange...");
-    emit_status(on_event, "auth", "Authenticating...");
+    emit_status(on_event, "handshake", "SSH handshake / key exchange...")?;
+    emit_status(on_event, "auth", "Authenticating...")?;
     authenticate(
         &mut session,
         host,
@@ -289,7 +301,7 @@ async fn run_session(
     )
     .await?;
 
-    emit_status(on_event, "pty", "Requesting PTY...");
+    emit_status(on_event, "pty", "Requesting PTY...")?;
     let channel = session
         .channel_open_session()
         .await
@@ -305,8 +317,8 @@ async fn run_session(
         .await
         .map_err(|e| e.to_string())?;
 
-    emit_status(on_event, "shell", "Shell ready");
-    emit(on_event, SshEvent::Connected);
+    emit_status(on_event, "shell", "Shell ready")?;
+    emit(on_event, SshEvent::Connected)?;
 
     let (mut read_half, write_half) = channel.split();
 
@@ -322,7 +334,7 @@ async fn run_session(
                     }
                     Some(SshCmd::Close) | None => {
                         let _ = session.disconnect(Disconnect::ByApplication, "", "").await;
-                        emit(on_event, SshEvent::Closed { message: "Disconnected".to_string() });
+                        let _ = emit(on_event, SshEvent::Closed { message: "Disconnected".to_string() });
                         return Ok(());
                     }
                 }
@@ -330,21 +342,21 @@ async fn run_session(
             msg = read_half.wait() => {
                 match msg {
                     Some(ChannelMsg::Data { ref data }) => {
-                        emit(on_event, SshEvent::Data { bytes: data.to_vec() });
+                        emit(on_event, SshEvent::Data { bytes: data.to_vec() })?;
                     }
                     Some(ChannelMsg::ExtendedData { ref data, .. }) => {
-                        emit(on_event, SshEvent::Data { bytes: data.to_vec() });
+                        emit(on_event, SshEvent::Data { bytes: data.to_vec() })?;
                     }
                     Some(ChannelMsg::Close) | Some(ChannelMsg::Eof) => {
-                        emit(on_event, SshEvent::Closed { message: "Connection closed by remote".to_string() });
+                        let _ = emit(on_event, SshEvent::Closed { message: "Connection closed by remote".to_string() });
                         return Ok(());
                     }
                     Some(ChannelMsg::ExitStatus { exit_status }) => {
-                        emit(on_event, SshEvent::Closed { message: format!("Process exited ({exit_status})") });
+                        let _ = emit(on_event, SshEvent::Closed { message: format!("Process exited ({exit_status})") });
                         return Ok(());
                     }
                     None => {
-                        emit(on_event, SshEvent::Closed { message: "Channel closed".to_string() });
+                        let _ = emit(on_event, SshEvent::Closed { message: "Channel closed".to_string() });
                         return Ok(());
                     }
                     _ => {}
