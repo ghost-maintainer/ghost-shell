@@ -19,19 +19,19 @@ step() {
 }
 
 info() {
-    echo -e "    ${DIM}${1}${NC}"
+    echo -e " ${DIM}${1}${NC}"
 }
 
 ok() {
-    echo -e "    ${GREEN}✓${NC} ${1}"
+    echo -e " ${GREEN}✓${NC} ${1}"
 }
 
 warn() {
-    echo -e "    ${YELLOW}!${NC} ${1}"
+    echo -e " ${YELLOW}!${NC} ${1}"
 }
 
 fail() {
-    echo -e "    ${RED}✗${NC} ${1}"
+    echo -e " ${RED}✗${NC} ${1}"
 }
 
 echo -e "${CYAN}Ghost Shell — git commit & push${NC}"
@@ -56,11 +56,15 @@ API_URL="https://integrate.api.nvidia.com/v1/chat/completions"
 API_CONNECT_TIMEOUT="${API_CONNECT_TIMEOUT:-10}"
 API_MAX_TIME="${API_MAX_TIME:-30}"
 COMPANY_NAME="Ghost Compiler"
+DEBUG_API="${DEBUG_API:-0}"
 
 info "API model: ${API_MODEL}"
 info "API timeout: connect=${API_CONNECT_TIMEOUT}s, max=${API_MAX_TIME}s"
 if [ "${SKIP_API:-0}" = "1" ]; then
     info "SKIP_API=1 (local commit message only)"
+fi
+if [ "$DEBUG_API" = "1" ]; then
+    info "DEBUG_API=1 (raw API responses will be printed)"
 fi
 
 step "Checking git repository"
@@ -253,7 +257,8 @@ else
                 '{
                   model: $model,
                   temperature: 0.1,
-                  max_tokens: 20,
+                  max_tokens: 60,
+                  chat_template_kwargs: { enable_thinking: false },
                   messages: [{ role: "user", content: $prompt }]
                 }')"
     )
@@ -262,11 +267,35 @@ else
 
     info "API response: HTTP ${HTTP_CODE:-?}, curl exit ${CURL_EXIT}"
 
+    if [ "$DEBUG_API" = "1" ]; then
+        echo
+        info "Raw response body:"
+        if jq . "$API_RESPONSE_FILE" >/dev/null 2>&1; then
+            jq . "$API_RESPONSE_FILE" | sed 's/^/      /'
+        else
+            sed 's/^/      /' "$API_RESPONSE_FILE"
+        fi
+        echo
+    fi
+
     if [ "$CURL_EXIT" -ne 0 ]; then
-        warn "API request failed — using local fallback"
+        warn "API request failed (network/curl error, exit ${CURL_EXIT}) — using local fallback"
+        COMMIT_MESSAGE="$LOCAL_MESSAGE"
+    elif [[ "$HTTP_CODE" != 2* ]]; then
+        warn "API returned HTTP ${HTTP_CODE} — using local fallback"
+        API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
+        if [ -n "$API_ERROR" ]; then
+            fail "API error: ${API_ERROR}"
+        else
+            fail "Raw response: $(tr -d '\n' < "$API_RESPONSE_FILE" | cut -c1-300)"
+        fi
+        info "Tip: run with DEBUG_API=1 to see the full response body."
         COMMIT_MESSAGE="$LOCAL_MESSAGE"
     else
         API_RAW=$(jq -r '.choices[0].message.content // empty' "$API_RESPONSE_FILE" 2>/dev/null || true)
+        REASONING_RAW=$(jq -r '.choices[0].message.reasoning_content // empty' "$API_RESPONSE_FILE" 2>/dev/null || true)
+        FINISH_REASON=$(jq -r '.choices[0].finish_reason // empty' "$API_RESPONSE_FILE" 2>/dev/null || true)
+
         COMMIT_MESSAGE=$(echo "$API_RAW" | head -n1 | sed 's/^"//;s/"$//' | xargs)
 
         if [ -n "$API_RAW" ] && [ "$API_RAW" != "null" ]; then
@@ -274,12 +303,23 @@ else
         fi
 
         if [ -z "$COMMIT_MESSAGE" ] || [ "$COMMIT_MESSAGE" = "null" ]; then
-            API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
             warn "API returned no usable message — using local fallback"
-            [ -n "$API_ERROR" ] && info "API error: ${API_ERROR}"
+
+            if [ "$FINISH_REASON" = "length" ]; then
+                fail "Response was truncated (finish_reason=length) before producing content."
+                info "The model likely spent its token budget on reasoning. Try raising max_tokens further."
+            elif [ -n "$REASONING_RAW" ] && [ "$REASONING_RAW" != "null" ]; then
+                fail "Model returned only reasoning_content, no final content."
+                info "Reasoning (truncated): $(echo "$REASONING_RAW" | tr -d '\n' | cut -c1-200)..."
+            else
+                API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
+                [ -n "$API_ERROR" ] && fail "API error: ${API_ERROR}"
+            fi
+            info "Tip: run with DEBUG_API=1 to see the full raw response body."
             COMMIT_MESSAGE="$LOCAL_MESSAGE"
         elif is_specific_message "$COMMIT_MESSAGE"; then
             warn "API message too specific — using local fallback"
+            info "Rejected message: \"${COMMIT_MESSAGE}\""
             COMMIT_MESSAGE="$LOCAL_MESSAGE"
         else
             MESSAGE_SOURCE="api"
@@ -289,7 +329,7 @@ else
 fi
 
 echo
-echo -e "    ${GREEN}Commit message (${MESSAGE_SOURCE}):${NC} ${COMMIT_MESSAGE}"
+echo -e " ${GREEN}Commit message (${MESSAGE_SOURCE}):${NC} ${COMMIT_MESSAGE}"
 
 #########################################
 # Commit
@@ -336,4 +376,4 @@ ok "Push completed"
 
 echo
 echo -e "${GREEN}Done!${NC} ${COMMIT_SHA} → origin/main"
-echo -e "    ${DIM}Message: ${COMMIT_MESSAGE}${NC}"
+echo -e " ${DIM}Message: ${COMMIT_MESSAGE}${NC}"
