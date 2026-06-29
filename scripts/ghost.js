@@ -8,8 +8,6 @@
  *   npm run ghost build [target] build, copy distributables → build/, remove intermediates
  *
  * Targets: win | win:64 | win:arm | linux | mac | mac:arm | mac:intel | mac:universal
- *
- * Windows builds also produce MSIX packages (via winapp CLI) when run on Windows.
  */
 
 import { spawn } from "node:child_process";
@@ -90,7 +88,7 @@ function bundleDirFor(target) {
 
 // The only files we keep — the actual installers/packages users download.
 // Everything else in bundle/ (the unpacked .app, icons, helper scripts) is dropped.
-const INSTALLER_EXTS = [".dmg", ".exe", ".msi", ".msix", ".deb", ".rpm", ".appimage"];
+const INSTALLER_EXTS = [".dmg", ".exe", ".msi", ".deb", ".rpm", ".appimage"];
 
 // Recursively collect installer files, skipping the unpacked *.app bundle dir.
 function findInstallers(dir, out = []) {
@@ -165,39 +163,9 @@ async function tauriBuild(target) {
   collectArtifacts(target);
 }
 
-async function packageMsix(targetKey) {
-  if (!IS_WIN) return;
-  const arch = targetKey === "win:arm" ? "arm64" : "x64";
-  const rustTarget = TARGETS[targetKey];
-  const script = path.join(ROOT, "scripts", "package-msix.ps1");
-  console.log(`\n📦 Packaging MSIX (${arch})...\n`);
-  await run("powershell", [
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    script,
-    "-Arch",
-    arch,
-    "-RustTarget",
-    rustTarget,
-  ]);
-  collectArtifacts(rustTarget);
-}
-
-async function signLinuxPackages() {
-  if (process.platform !== "linux") return;
-  const script = path.join(ROOT, "scripts", "sign-linux.sh");
-  if (!fs.existsSync(script)) return;
-  console.log("\n🔏 Signing Linux packages (if GPG key is configured)...\n");
-  await run("bash", [script]);
-}
-
 async function buildMany(targetKeys) {
   for (const key of targetKeys) {
     await tauriBuild(TARGETS[key]);
-    if (key.startsWith("win:")) {
-      await packageMsix(key);
-    }
   }
 }
 
@@ -326,17 +294,10 @@ const [, , command, target] = process.argv;
         await installDeps(); // build needs node_modules (vite + tauri)
         if (!target || target === "linux") {
           await tauriBuild(); // build for whatever OS this is run on
-          await signLinuxPackages();
         } else if (TARGETS[target]) {
           await tauriBuild(TARGETS[target]);
-          if (target.startsWith("win:")) {
-            await packageMsix(target);
-          }
         } else if (GROUPS[target]) {
           await buildMany(GROUPS[target]);
-          if (target === "linux") {
-            await signLinuxPackages();
-          }
         } else {
           console.error(`Unknown build target: "${target}"`);
           process.exit(1);

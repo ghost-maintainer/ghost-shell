@@ -93,33 +93,7 @@ jobs:
             curl wget file \
             libxdo-dev \
             libssl-dev \
-            libayatana-appindicator3-dev \
-            debsigs \
-            dpkg-sig \
-            rpm \
-            gnupg
-
-      - name: Setup WinApp CLI
-        if: runner.os == 'Windows'
-        uses: microsoft/setup-WinAppCli@v0.1
-
-      - name: Prepare Windows signing certificate
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if ($env:WINDOWS_SIGN_PFX_BASE64) {
-            New-Item -ItemType Directory -Force -Path packaging/windows | Out-Null
-            [IO.File]::WriteAllBytes(
-              "$PWD/packaging/windows/devcert.pfx",
-              [Convert]::FromBase64String($env:WINDOWS_SIGN_PFX_BASE64)
-            )
-          } else {
-            Push-Location packaging/windows
-            winapp cert generate --if-exists skip
-            Pop-Location
-          }
-        env:
-          WINDOWS_SIGN_PFX_BASE64: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
+            libayatana-appindicator3-dev
 
       # ghost.js runs `npm install` itself, but doing it here uses the npm cache.
       - name: Install dependencies
@@ -141,10 +115,6 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
-          WINDOWS_SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
-          LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
-          LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
-          LINUX_GPG_KEY_ID: ${{ secrets.LINUX_GPG_KEY_ID }}
 
       # Linux produces three installers — upload each separately so Actions
       # downloads are one file per artifact instead of one bundled zip.
@@ -175,34 +145,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload Linux signatures
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ghost-shell-linux-signatures
-          path: |
-            build/*.asc
-            build/ghost-compiler-signing-key.asc
-          if-no-files-found: ignore
-          retention-days: 14
-
-      - name: Upload Windows MSIX
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ghost-shell-${{ matrix.name }}-msix
-          path: build/*.msix
-          if-no-files-found: error
-          retention-days: 14
-
       - name: Upload artifacts
         if: runner.os != 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: ghost-shell-${{ matrix.name }}
-          path: |
-            build/**
-            !build/*.msix
+          path: build/**
           if-no-files-found: error
           retention-days: 14
 
