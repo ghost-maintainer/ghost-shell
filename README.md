@@ -1,10 +1,40 @@
-# Ghost Shell
+<p align="center">
+  <img src="src/assets/app-icon.png" alt="Ghost Shell" width="180">
+</p>
 
-**A native SSH & SFTP desktop client by [Ghost Compiler](https://github.com/ghost-maintainer/ghost-shell).**
+<p align="center">
+  <strong>Ghost Shell</strong><br>
+  A native SSH &amp; SFTP desktop client by Ghost Compiler
+</p>
 
-Built with **Tauri 2**, **React 19**, and **Rust** — small, fast, and truly cross-platform.
+<p align="center">
+  <img src="https://img.shields.io/badge/Tauri-2-FFC131?style=for-the-badge&logo=tauri&logoColor=white" alt="Tauri 2">
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19">
+  <img src="https://img.shields.io/badge/Rust-Stable-F74C00?style=for-the-badge&logo=rust&logoColor=white" alt="Rust">
+  <img src="https://img.shields.io/badge/Built%20By-Ghost%20Compiler-0F172A?style=for-the-badge" alt="Ghost Compiler">
+</p>
 
-[Build status](https://github.com/ghost-maintainer/ghost-shell/actions/workflows/build.yml) · [Latest release](https://github.com/ghost-maintainer/ghost-shell/releases/latest) · [License](LICENSE)
+<p align="center">
+  <a href="https://github.com/ghost-maintainer/ghost-shell/stargazers">
+    <img src="https://img.shields.io/github/stars/ghost-maintainer/ghost-shell?style=for-the-badge&logo=github" alt="GitHub stars">
+  </a>
+  <a href="https://github.com/ghost-maintainer/ghost-shell/releases/latest">
+    <img src="https://img.shields.io/github/v/release/ghost-maintainer/ghost-shell?style=for-the-badge&logo=github" alt="Latest release">
+  </a>
+  <a href="https://github.com/ghost-maintainer/ghost-shell/actions/workflows/build.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/ghost-maintainer/ghost-shell/build.yml?style=for-the-badge&logo=githubactions&logoColor=white" alt="Build status">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/ghost-maintainer/ghost-shell?style=for-the-badge" alt="License">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ghost-maintainer/ghost-shell/releases/latest">Download</a> ·
+  <a href="#installation">Install</a> ·
+  <a href="#development">Develop</a> ·
+  <a href="#how-the-app-works">How it works</a>
+</p>
 
 ---
 
