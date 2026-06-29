@@ -3,7 +3,7 @@ import DashboardLayout from "@/layouts/dashboard";
 export default function Settings() {
   return (
     <DashboardLayout>
-      We Will let you know when we have something to show you here. demo
+      We Will let you know when we have something to show you here.
     </DashboardLayout>
   );
 }
