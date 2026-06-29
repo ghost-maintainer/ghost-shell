@@ -28,3 +28,4 @@ build
 .claude
 .env
 dist
+.agents
