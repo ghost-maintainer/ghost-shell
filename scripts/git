@@ -52,14 +52,18 @@ set +a
 : "${API_MODEL:?Set API_MODEL in .env}"
 : "${API_KEY:?Set API_KEY in .env}"
 
-API_URL="https://api.z.ai/api/paas/v4/chat/completions"
+# OpenRouter Standard Endpoint
+API_URL="https://openrouter.ai/api/v1/chat/completions"
 API_CONNECT_TIMEOUT="${API_CONNECT_TIMEOUT:-10}"
 API_MAX_TIME="${API_MAX_TIME:-30}"
+API_MAX_RETRIES="${API_MAX_RETRIES:-3}"
+API_RETRY_DELAY="${API_RETRY_DELAY:-5}"
 COMPANY_NAME="Ghost Compiler"
 DEBUG_API="${DEBUG_API:-0}"
 
 info "API model: ${API_MODEL}"
 info "API timeout: connect=${API_CONNECT_TIMEOUT}s, max=${API_MAX_TIME}s"
+info "API retries: ${API_MAX_RETRIES} (delay: ${API_RETRY_DELAY}s)"
 if [ "${SKIP_API:-0}" = "1" ]; then
     info "SKIP_API=1 (local commit message only)"
 fi
@@ -222,109 +226,178 @@ EOF
 )
 
 #########################################
-# Commit message
+# Build request body once (Standard OpenAI format)
 #########################################
 
-COMMIT_MESSAGE=""
-MESSAGE_SOURCE="local"
+REQUEST_BODY=$(jq -n \
+    --arg model "$API_MODEL" \
+    --arg prompt "$PROMPT" \
+    '{
+      model: $model,
+      temperature: 0.1,
+      max_tokens: 60,
+      messages: [{ role: "user", content: $prompt }]
+    }')
 
-step "Generating commit message"
+#########################################
+# Call API with retry
+#########################################
 
-if [ "${SKIP_API:-0}" = "1" ]; then
-    warn "SKIP_API=1 — skipping Z.AI API"
-    COMMIT_MESSAGE="$LOCAL_MESSAGE"
-    ok "Using local message"
-else
-    info "Calling Z.AI API (${API_URL})"
-    info "Waiting up to ${API_MAX_TIME}s for response..."
+call_api() {
+    local response_file="$1"
+    local http_code
 
-    API_RESPONSE_FILE=$(mktemp)
-    trap 'rm -f "$API_RESPONSE_FILE"' EXIT
-
-    set +e
-    HTTP_CODE=$(
+    http_code=$(
         curl -sS \
             --connect-timeout "$API_CONNECT_TIMEOUT" \
             --max-time "$API_MAX_TIME" \
-            -o "$API_RESPONSE_FILE" \
+            -o "$response_file" \
             -w "%{http_code}" \
             -X POST "$API_URL" \
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n \
-                --arg model "$API_MODEL" \
-                --arg prompt "$PROMPT" \
-                '{
-                  model: $model,
-                  temperature: 0.1,
-                  max_tokens: 60,
-                  thinking: { type: "disabled" },
-                  messages: [{ role: "user", content: $prompt }]
-                }')"
+            -H "HTTP-Referer: https://github.com/ghost-maintainer/ghost-shell" \
+            -H "X-Title: Ghost Shell" \
+            -d "$REQUEST_BODY"
     )
-    CURL_EXIT=$?
-    set -e
+    echo "$http_code"
+}
 
-    info "API response: HTTP ${HTTP_CODE:-?}, curl exit ${CURL_EXIT}"
+parse_api_response() {
+    local response_file="$1"
+    API_RAW=$(jq -r '.choices[0].message.content // empty' "$response_file" 2>/dev/null || true)
+    REASONING_RAW=$(jq -r '.choices[0].message.reasoning_content // empty' "$response_file" 2>/dev/null || true)
+    FINISH_REASON=$(jq -r '.choices[0].finish_reason // empty' "$response_file" 2>/dev/null || true)
+    COMMIT_MESSAGE=$(echo "$API_RAW" | head -n1 | sed 's/^"//;s/"$//' | xargs)
+}
 
-    if [ "$DEBUG_API" = "1" ]; then
-        echo
-        info "Raw response body:"
-        if jq . "$API_RESPONSE_FILE" >/dev/null 2>&1; then
-            jq . "$API_RESPONSE_FILE" | sed 's/^/      /'
-        else
-            sed 's/^/      /' "$API_RESPONSE_FILE"
+#########################################
+# Commit message generation
+#########################################
+
+COMMIT_MESSAGE=""
+MESSAGE_SOURCE="local"
+API_RAW=""
+REASONING_RAW=""
+FINISH_REASON=""
+
+step "Generating commit message"
+
+if [ "${SKIP_API:-0}" = "1" ]; then
+    warn "SKIP_API=1 — skipping OpenRouter API"
+    COMMIT_MESSAGE="$LOCAL_MESSAGE"
+    ok "Using local message"
+else
+    info "Calling OpenRouter API (${API_URL})"
+    info "Waiting up to ${API_MAX_TIME}s per request, up to ${API_MAX_RETRIES} retries..."
+
+    API_RESPONSE_FILE=$(mktemp)
+    trap 'rm -f "$API_RESPONSE_FILE"' EXIT
+
+    ATTEMPT=0
+    SUCCESS=0
+
+    while [ "$ATTEMPT" -lt "$API_MAX_RETRIES" ]; do
+        ATTEMPT=$((ATTEMPT + 1))
+
+        if [ "$ATTEMPT" -gt 1 ]; then
+            info "Retry ${ATTEMPT}/${API_MAX_RETRIES} after ${API_RETRY_DELAY}s..."
+            sleep "$API_RETRY_DELAY"
         fi
-        echo
-    fi
 
-    if [ "$CURL_EXIT" -ne 0 ]; then
-        warn "API request failed (network/curl error, exit ${CURL_EXIT}) — using local fallback"
-        COMMIT_MESSAGE="$LOCAL_MESSAGE"
-    elif [[ "$HTTP_CODE" != 2* ]]; then
-        warn "API returned HTTP ${HTTP_CODE} — using local fallback"
-        API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .error.code then (.error.code | tostring) + ": " + .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
+        set +e
+        HTTP_CODE=$(call_api "$API_RESPONSE_FILE")
+        CURL_EXIT=$?
+        set -e
+
+        info "Attempt ${ATTEMPT}: HTTP ${HTTP_CODE:-?}, curl exit ${CURL_EXIT}"
+
+        if [ "$DEBUG_API" = "1" ]; then
+            echo
+            info "Raw response body (attempt ${ATTEMPT}):"
+            if jq . "$API_RESPONSE_FILE" >/dev/null 2>&1; then
+                jq . "$API_RESPONSE_FILE" | sed 's/^/      /'
+            else
+                sed 's/^/      /' "$API_RESPONSE_FILE"
+            fi
+            echo
+        fi
+
+        # Network error
+        if [ "$CURL_EXIT" -ne 0 ]; then
+            warn "Network error (curl exit ${CURL_EXIT})"
+            continue
+        fi
+
+        # Rate limited — retry with backoff
+        if [ "$HTTP_CODE" = "429" ]; then
+            warn "Rate limited (HTTP 429)"
+            if [ "$ATTEMPT" -lt "$API_MAX_RETRIES" ]; then
+                BACKOFF=$((API_RETRY_DELAY * ATTEMPT))
+                info "Backing off ${BACKOFF}s before next retry..."
+                sleep "$BACKOFF"
+            fi
+            continue
+        fi
+
+        # Server error — retry
+        if [[ "$HTTP_CODE" = 5* ]]; then
+            warn "Server error (HTTP ${HTTP_CODE})"
+            continue
+        fi
+
+        # Success
+        if [[ "$HTTP_CODE" = 2* ]]; then
+            parse_api_response "$API_RESPONSE_FILE"
+
+            if [ -n "$API_RAW" ] && [ "$API_RAW" != "null" ]; then
+                info "API returned: ${API_RAW}"
+            fi
+
+            # Empty response
+            if [ -z "$COMMIT_MESSAGE" ] || [ "$COMMIT_MESSAGE" = "null" ]; then
+                if [ "$FINISH_REASON" = "length" ]; then
+                    fail "Response truncated (finish_reason=length)"
+                elif [ -n "$REASONING_RAW" ] && [ "$REASONING_RAW" != "null" ]; then
+                    fail "Model returned only reasoning, no content"
+                    info "Reasoning (truncated): $(echo "$REASONING_RAW" | tr -d '\n' | cut -c1-200)..."
+                fi
+                warn "No usable message in response"
+                continue
+            fi
+
+            # Too specific
+            if is_specific_message "$COMMIT_MESSAGE"; then
+                warn "API message too specific — rejected"
+                info "Rejected: \"${COMMIT_MESSAGE}\""
+                continue
+            fi
+
+            SUCCESS=1
+            break
+        fi
+
+        # Other client error (4xx, not 429) — don't retry
+        API_ERROR=$(jq -r 'if .error.message then .error.message elif .error.code then (.error.code | tostring) + ": " + .error.message elif .detail then .detail elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
         if [ -n "$API_ERROR" ]; then
             fail "API error: ${API_ERROR}"
         else
-            fail "Raw response: $(tr -d '\n' < "$API_RESPONSE_FILE" | cut -c1-300)"
+            fail "Unexpected HTTP ${HTTP_CODE}: $(tr -d '\n' < "$API_RESPONSE_FILE" | cut -c1-300)"
         fi
         info "Tip: run with DEBUG_API=1 to see the full response body."
-        COMMIT_MESSAGE="$LOCAL_MESSAGE"
-    else
-        API_RAW=$(jq -r '.choices[0].message.content // empty' "$API_RESPONSE_FILE" 2>/dev/null || true)
-        REASONING_RAW=$(jq -r '.choices[0].message.reasoning_content // empty' "$API_RESPONSE_FILE" 2>/dev/null || true)
-        FINISH_REASON=$(jq -r '.choices[0].finish_reason // empty' "$API_RESPONSE_FILE" 2>/dev/null || true)
+        break
+    done
 
-        COMMIT_MESSAGE=$(echo "$API_RAW" | head -n1 | sed 's/^"//;s/"$//' | xargs)
-
-        if [ -n "$API_RAW" ] && [ "$API_RAW" != "null" ]; then
-            info "API returned: ${API_RAW}"
-        fi
-
-        if [ -z "$COMMIT_MESSAGE" ] || [ "$COMMIT_MESSAGE" = "null" ]; then
-            warn "API returned no usable message — using local fallback"
-
-            if [ "$FINISH_REASON" = "length" ]; then
-                fail "Response was truncated (finish_reason=length) before producing content."
-                info "The model likely spent its token budget on reasoning. Try raising max_tokens further."
-            elif [ -n "$REASONING_RAW" ] && [ "$REASONING_RAW" != "null" ]; then
-                fail "Model returned only reasoning_content, no final content."
-                info "Reasoning (truncated): $(echo "$REASONING_RAW" | tr -d '\n' | cut -c1-200)..."
-            else
-                API_ERROR=$(jq -r 'if .detail then .detail elif .error.message then .error.message elif .error.code then (.error.code | tostring) + ": " + .error.message elif .title then .title else empty end' "$API_RESPONSE_FILE" 2>/dev/null || true)
-                [ -n "$API_ERROR" ] && fail "API error: ${API_ERROR}"
-            fi
-            info "Tip: run with DEBUG_API=1 to see the full raw response body."
-            COMMIT_MESSAGE="$LOCAL_MESSAGE"
-        elif is_specific_message "$COMMIT_MESSAGE"; then
-            warn "API message too specific — using local fallback"
-            info "Rejected message: \"${COMMIT_MESSAGE}\""
-            COMMIT_MESSAGE="$LOCAL_MESSAGE"
+    if [ "$SUCCESS" -eq 1 ]; then
+        if [ "$ATTEMPT" -gt 1 ]; then
+            MESSAGE_SOURCE="api (attempt ${ATTEMPT})"
         else
             MESSAGE_SOURCE="api"
-            ok "Using API message"
         fi
+        ok "Using API message"
+    else
+        warn "All ${API_MAX_RETRIES} attempt(s) failed — using local fallback"
+        COMMIT_MESSAGE="$LOCAL_MESSAGE"
     fi
 fi
 
