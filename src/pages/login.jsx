@@ -37,6 +37,28 @@ export default function Login() {
   const [confirmPassword, setConfirmPassword] = React.useState("");
 
   const { unlock } = useSecurity();
+  const [showForgotConfirm, setShowForgotConfirm] = React.useState(false);
+
+  const handleForgotPassphraseWipe = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      await invoke("supabase_wipe_cloud_data").catch((err) => {
+        console.warn("Cloud wipe failed or not connected, proceeding to local wipe:", err);
+      });
+      await invoke("wipe_data");
+      setPassphrase("");
+      setError("");
+      setHasCloudVault(false);
+      setStep("sync-choice");
+      setShowForgotConfirm(false);
+      window.location.reload();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleShowPassphrase = () => {
     setShowPassphrase(!showPassphrase);
@@ -715,12 +737,64 @@ export default function Login() {
 
           <button
             type="button"
-            className="flex items-center justify-center gap-1 mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors pt-1"
+            className="text-xs text-destructive hover:underline transition-colors pt-2 block mx-auto cursor-pointer"
+            onClick={() => setShowForgotConfirm(true)}
+            disabled={loading}
+          >
+            Forgot Password?
+          </button>
+
+          <button
+            type="button"
+            className="flex items-center justify-center gap-1 mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors pt-2"
             onClick={() => setStep("sync-choice")}
             disabled={loading}
           >
             <ArrowLeft className="size-3.5" /> Back to Sync Setup
           </button>
+        </div>
+      )}
+
+      {showForgotConfirm && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+          <div className="border bg-sidebar p-6 rounded-xl max-w-md w-full shadow-lg space-y-4 m-4 animate-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-destructive text-center">
+              Wipe and Reset Sync Vault?
+            </h3>
+            <div className="text-xs text-muted-foreground space-y-3 leading-relaxed">
+              <p>
+                This is going to clear and wipe all your data in sync. We cannot reset your
+                password because we do not store your password in decrypted mode.
+              </p>
+              <p>
+                All your data is encrypted and stored using your password. We cannot decrypt your
+                data or update that password.
+              </p>
+              <p className="font-semibold text-foreground">
+                Do you want to continue? This will permanently delete all cloud backup entries for
+                your account on Supabase and remove your local database if present.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button
+                variant="outline"
+                className="text-xs h-9 cursor-pointer"
+                onClick={() => setShowForgotConfirm(false)}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="text-xs h-9 cursor-pointer"
+                onClick={handleForgotPassphraseWipe}
+                disabled={loading}
+              >
+                {loading ? <Loader2 className="animate-spin size-3.5 mr-1.5" /> : null}
+                Wipe All Cloud & Local Data
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

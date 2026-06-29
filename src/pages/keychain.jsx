@@ -262,13 +262,13 @@ export default function KeyChain() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 scrollbar-hidden">
             {filteredKeys.map((key) => (
               <div
                 key={key.id}
                 className="border bg-sidebar rounded-lg px-3 py-2 flex flex-row gap-2"
               >
-                <div className="size-10 bg-primary/30 rounded-md flex items-center justify-center shrink-0 border border-primary/50">
+                <div className="size-10 bg-primary rounded-md flex items-center justify-center shrink-0 border border-primary/50">
                   <KeyIcon className="size-5 text-primary-foreground" />
                 </div>
                 <div className="flex flex-col space-y-1 items-start justify-center flex-1">

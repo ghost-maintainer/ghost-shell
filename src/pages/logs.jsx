@@ -18,6 +18,7 @@ import {
   getSessionLog,
   deleteSessionLog,
   stripAnsi,
+  triggerLogSync,
 } from "@/lib/session-history";
 
 function formatDate(ms) {
@@ -50,6 +51,7 @@ export default function Logs() {
   const [search, setSearch] = React.useState("");
   const [selectedId, setSelectedId] = React.useState(null);
   const [selectedLog, setSelectedLog] = React.useState(null);
+  const [selectedLogContent, setSelectedLogContent] = React.useState("");
 
   const refresh = React.useCallback(() => {
     setRecords(listSessionHistory());
@@ -57,16 +59,36 @@ export default function Logs() {
 
   React.useEffect(() => {
     refresh();
+    triggerLogSync().catch(() => {});
+
+    const handleSynced = () => {
+      refresh();
+    };
+    window.addEventListener("logs-synced", handleSynced);
     const timer = setInterval(refresh, 5000);
-    return () => clearInterval(timer);
+    return () => {
+      window.removeEventListener("logs-synced", handleSynced);
+      clearInterval(timer);
+    };
   }, [refresh]);
 
   React.useEffect(() => {
     if (!selectedId) {
       setSelectedLog(null);
+      setSelectedLogContent("");
       return;
     }
     setSelectedLog(getSessionLog(selectedId));
+
+    // Load full log content asynchronously from disk
+    invoke("get_session_log_content", { sessionId: selectedId })
+      .then((content) => {
+        setSelectedLogContent(content || "");
+      })
+      .catch((err) => {
+        console.error("Failed to load session log content:", err);
+        setSelectedLogContent("Failed to load session log content from disk.");
+      });
   }, [selectedId, records]);
 
   const handleDelete = (id, e) => {
@@ -104,7 +126,7 @@ export default function Logs() {
       r.hostName?.toLowerCase().includes(q) ||
       r.hostAddress?.toLowerCase().includes(q) ||
       r.username?.toLowerCase().includes(q) ||
-      r.log?.toLowerCase().includes(q)
+      r.preview?.toLowerCase().includes(q)
     );
   });
 
@@ -114,13 +136,7 @@ export default function Logs() {
     <DashboardLayout>
       <div className="h-full flex flex-col gap-4 min-h-0">
         <div className="flex items-center justify-between gap-3 shrink-0">
-          <div>
-            <h2 className="text-lg font-semibold">Session Logs</h2>
-            <p className="text-xs text-muted-foreground">
-              Complete terminal output · auto-deleted after 7 days
-            </p>
-          </div>
-          <div className="relative w-full max-w-xs">
+          <div className="relative w-full max-w-sm">
             <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <Input
               className="pl-8 h-8 text-xs"
@@ -138,8 +154,8 @@ export default function Logs() {
             <p className="text-xs">Connect to a host to start recording</p>
           </div>
         ) : (
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 pb-2">
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hidden">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4 ">
               {filtered.map((record) => (
                 <div
                   key={record.id}
@@ -186,14 +202,16 @@ export default function Logs() {
                     </div>
                   </div>
                   <p className="text-xs text-muted-foreground line-clamp-2 font-mono">
-                    {previewLog(record.log) || "No output yet"}
+                    {previewLog(record.preview || "") || "No output yet"}
                   </p>
                   <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <ClockIcon className="size-3" />
                       {formatDate(record.startedAt)}
                     </span>
-                    <span>{formatDuration(record.startedAt, record.endedAt)}</span>
+                    <span>
+                      {formatDuration(record.startedAt, record.endedAt)}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -250,7 +268,7 @@ export default function Logs() {
             </div>
             <div className="flex-1 min-h-0 overflow-auto bg-[#141414] p-4">
               <pre className="text-xs font-mono text-[#e5e5e5] whitespace-pre-wrap break-words leading-relaxed">
-                {stripAnsi(selected?.log) || "No log content"}
+                {stripAnsi(selectedLogContent) || "Loading log content..."}
               </pre>
             </div>
           </div>

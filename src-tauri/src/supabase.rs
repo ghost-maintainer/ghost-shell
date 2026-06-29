@@ -989,3 +989,264 @@ pub async fn supabase_update_password(
 
     Ok(has_cloud_vault)
 }
+
+#[tauri::command]
+pub async fn sync_logs(
+    app: AppHandle,
+    local_records: Vec<serde_json::Value>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mut config = load_config(&app);
+    if config.session_token.is_none() {
+        return Ok(local_records); // Offline mode
+    }
+    let refresh_token = config.refresh_token.as_ref().unwrap();
+
+    let state = app.state::<crate::AppState>();
+    let master_key_opt = *state.master_key.lock().unwrap();
+    let (master_key, _) = match (master_key_opt, *state.salt.lock().unwrap()) {
+        (Some(k), Some(s)) => (k, s),
+        _ => return Err("Vault is locked".to_string()),
+    };
+
+    // Refresh token first
+    let (new_access, new_refresh, email, user_id) = match refresh_session(&config.url, &config.anon_key, refresh_token).await {
+        Ok(res) => res,
+        Err(e) => return Err(format!("Failed to refresh Supabase session before sync: {}", e)),
+    };
+    config.session_token = Some(new_access.clone());
+    config.refresh_token = Some(new_refresh);
+    config.user_email = Some(email);
+    config.user_id = Some(user_id.clone());
+    save_config(&app, &config)?;
+
+    let client = reqwest::Client::new();
+    let app_data_dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    let logs_dir = app_data_dir.join("logs");
+
+    // 1. Push local records
+    for record in &local_records {
+        let session_id = record.get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing 'id' in log record".to_string())?;
+
+        // Read log content from disk file
+        let log_file_path = logs_dir.join(format!("{}.log", session_id));
+        let log_content = if log_file_path.exists() {
+            std::fs::read_to_string(&log_file_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        // Bundle log content into the record before encryption
+        let mut full_record = record.clone();
+        if let Some(obj) = full_record.as_object_mut() {
+            obj.insert("log".to_string(), serde_json::Value::String(log_content));
+        }
+
+        let encrypted_log = vault::encrypt_record(&full_record, &master_key)?;
+        let log_body = serde_json::json!({
+            "user_id": user_id,
+            "session_id": session_id,
+            "encrypted_data": encrypted_log
+        });
+
+        let log_res = client
+            .post(format!("{}/rest/v1/user_logs", config.url))
+            .header("apikey", &config.anon_key)
+            .header("Authorization", format!("Bearer {}", new_access))
+            .header("Content-Type", "application/json")
+            .header("Prefer", "resolution=merge-duplicates")
+            .json(&log_body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !log_res.status().is_success() {
+            let err = log_res.text().await.unwrap_or_default();
+            return Err(format!("Failed to sync log {}: {}", session_id, err));
+        }
+    }
+
+    // 2. Clean up deleted logs in the cloud
+    let local_session_ids: Vec<String> = local_records
+        .iter()
+        .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .collect();
+
+    if local_session_ids.is_empty() {
+        let _ = client
+            .delete(format!("{}/rest/v1/user_logs?user_id=eq.{}", config.url, user_id))
+            .header("apikey", &config.anon_key)
+            .header("Authorization", format!("Bearer {}", new_access))
+            .send()
+            .await;
+    } else {
+        let ids_filter = local_session_ids.iter().map(|id| format!("\"{}\"", id)).collect::<Vec<_>>().join(",");
+        let not_in_filter = format!("not.in.({})", ids_filter);
+        let _ = client
+            .delete(format!("{}/rest/v1/user_logs?user_id=eq.{}&session_id={}", config.url, user_id, not_in_filter))
+            .header("apikey", &config.anon_key)
+            .header("Authorization", format!("Bearer {}", new_access))
+            .send()
+            .await;
+    }
+
+    // 3. Pull all logs from Supabase
+    let logs_resp = client
+        .get(format!("{}/rest/v1/user_logs?select=session_id,encrypted_data&user_id=eq.{}", config.url, user_id))
+        .header("apikey", &config.anon_key)
+        .header("Authorization", format!("Bearer {}", new_access))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut merged_records = Vec::new();
+
+    if logs_resp.status().is_success() {
+        let cloud_logs: serde_json::Value = logs_resp.json().await.map_err(|e| e.to_string())?;
+        if let Some(log_arr) = cloud_logs.as_array() {
+            // Ensure logs directory exists
+            std::fs::create_dir_all(&logs_dir).map_err(|e| e.to_string())?;
+
+            for row in log_arr {
+                if let Some(enc_data) = row["encrypted_data"].as_str() {
+                    if let Ok(mut decrypted_record) = vault::decrypt_record::<serde_json::Value>(enc_data, &master_key) {
+                        let session_id = decrypted_record.get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+
+                        if !session_id.is_empty() {
+                            // Extract log content and write to disk file
+                            let log_content = decrypted_record.get("log")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default();
+                            
+                            let log_file_path = logs_dir.join(format!("{}.log", session_id));
+                            std::fs::write(&log_file_path, log_content).map_err(|e| e.to_string())?;
+
+                            // Remove log content from metadata object
+                            if let Some(obj) = decrypted_record.as_object_mut() {
+                                obj.remove("log");
+                            }
+                            
+                            merged_records.push(decrypted_record);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(merged_records)
+}
+
+#[tauri::command]
+pub async fn supabase_update_email(
+    app: AppHandle,
+    new_email: String,
+) -> Result<(), String> {
+    let mut config = load_config(&app);
+    let access_token = config.session_token.as_ref().ok_or("No active session found for email update.")?;
+
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "email": new_email
+    });
+
+    let response = client
+        .put(format!("{}/auth/v1/user", config.url))
+        .header("apikey", &config.anon_key)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to update email: {}", e))?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        let err_json: serde_json::Value = serde_json::from_str(&err).unwrap_or_default();
+        let msg = err_json["msg"]
+            .as_str()
+            .or_else(|| err_json["error_description"].as_str())
+            .unwrap_or("Failed to update email.");
+        return Err(msg.to_string());
+    }
+
+    config.user_email = Some(new_email);
+    save_config(&app, &config)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn supabase_wipe_cloud_data(app: AppHandle) -> Result<(), String> {
+    let mut config = load_config(&app);
+    let _session_token = config.session_token.as_ref().ok_or("No active session found for cloud wipe.")?;
+    let refresh_token = config.refresh_token.as_ref().ok_or("No active refresh token found for cloud wipe.")?;
+    let user_id = config.user_id.as_ref().ok_or("No active user ID found for cloud wipe.")?;
+
+    // Refresh token first to get a valid access token
+    let (new_access, new_refresh, _, _) = match refresh_session(&config.url, &config.anon_key, refresh_token).await {
+        Ok(res) => res,
+        Err(e) => return Err(format!("Failed to refresh Supabase session before wipe: {}", e)),
+    };
+    config.session_token = Some(new_access.clone());
+    config.refresh_token = Some(new_refresh);
+    save_config(&app, &config)?;
+
+    let client = reqwest::Client::new();
+
+    // 1. Delete user_logs
+    let _ = client
+        .delete(format!("{}/rest/v1/user_logs?user_id=eq.{}", config.url, user_id))
+        .header("apikey", &config.anon_key)
+        .header("Authorization", format!("Bearer {}", new_access))
+        .send()
+        .await;
+
+    // 2. Delete user_hosts
+    let _ = client
+        .delete(format!("{}/rest/v1/user_hosts?user_id=eq.{}", config.url, user_id))
+        .header("apikey", &config.anon_key)
+        .header("Authorization", format!("Bearer {}", new_access))
+        .send()
+        .await;
+
+    // 3. Delete user_keys
+    let _ = client
+        .delete(format!("{}/rest/v1/user_keys?user_id=eq.{}", config.url, user_id))
+        .header("apikey", &config.anon_key)
+        .header("Authorization", format!("Bearer {}", new_access))
+        .send()
+        .await;
+
+    // 4. Delete user_profiles
+    let _ = client
+        .delete(format!("{}/rest/v1/user_profiles?user_id=eq.{}", config.url, user_id))
+        .header("apikey", &config.anon_key)
+        .header("Authorization", format!("Bearer {}", new_access))
+        .send()
+        .await;
+
+    // 5. Clear Supabase config session
+    config.session_token = None;
+    config.refresh_token = None;
+    config.user_email = None;
+    config.is_offline = true;
+    save_config(&app, &config)?;
+
+    // Delete temporary cloud vault files
+    if let Ok(mut path) = app.path().app_local_data_dir() {
+        path.push("vault.enc.cloud");
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    Ok(())
+}
+
+
+

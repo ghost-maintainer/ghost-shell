@@ -1,3 +1,5 @@
+import { invoke } from "./tauri";
+
 const STORAGE_KEY = "ghost-shell-session-history";
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
 
@@ -22,6 +24,11 @@ export function pruneExpiredSessions() {
   const kept = store.records.filter((r) => r.startedAt >= cutoff);
   if (kept.length !== store.records.length) {
     writeStore(kept);
+    // Delete expired log files asynchronously
+    const expired = store.records.filter((r) => r.startedAt < cutoff);
+    for (const record of expired) {
+      invoke("delete_session_log_file", { sessionId: record.id }).catch(() => {});
+    }
   }
   return kept;
 }
@@ -50,18 +57,16 @@ export function createSessionRecord({ id, host }) {
     startedAt: Date.now(),
     endedAt: null,
     status: "active",
-    log: "",
   });
   writeStore(records);
+  triggerLogSync().catch(() => {});
 }
 
 export function appendSessionLog(sessionId, chunk) {
   if (!chunk) return;
-  const store = readStore();
-  const record = store.records.find((r) => r.id === sessionId);
-  if (!record) return;
-  record.log += chunk;
-  writeStore(store.records);
+  invoke("append_session_log", { sessionId, chunk }).catch((err) => {
+    console.error("Failed to append session log to disk:", err);
+  });
 }
 
 export function updateSessionRecord(sessionId, patch) {
@@ -70,6 +75,7 @@ export function updateSessionRecord(sessionId, patch) {
   if (!record) return;
   Object.assign(record, patch);
   writeStore(store.records);
+  triggerLogSync().catch(() => {});
 }
 
 export function finalizeSessionRecord(sessionId, status = "closed") {
@@ -83,11 +89,39 @@ export function deleteSessionLog(sessionId) {
   const store = readStore();
   const next = store.records.filter((r) => r.id !== sessionId);
   writeStore(next);
+  invoke("delete_session_log_file", { sessionId }).catch(() => {});
+  triggerLogSync().catch(() => {});
   return next.length !== store.records.length;
 }
 
 export function clearSessionHistory() {
+  const store = readStore();
+  for (const record of store.records) {
+    invoke("delete_session_log_file", { sessionId: record.id }).catch(() => {});
+  }
   localStorage.removeItem(STORAGE_KEY);
+  triggerLogSync().catch(() => {});
+}
+
+export async function triggerLogSync() {
+  try {
+    const unlocked = await invoke("is_unlocked").catch(() => false);
+    if (!unlocked) return;
+
+    const cloudStatus = await invoke("get_cloud_status").catch(() => null);
+    if (!cloudStatus || cloudStatus.is_offline || !cloudStatus.session_token) {
+      return; // Offline mode, do nothing
+    }
+
+    const store = readStore();
+    const merged = await invoke("sync_logs", { localRecords: store.records });
+    if (Array.isArray(merged)) {
+      writeStore(merged);
+      window.dispatchEvent(new CustomEvent("logs-synced"));
+    }
+  } catch (err) {
+    console.error("Log sync failed:", err);
+  }
 }
 
 export function previewLog(log, maxLen = 120) {
@@ -99,3 +133,4 @@ export function previewLog(log, maxLen = 120) {
 export function stripAnsi(log = "") {
   return log.replace(/\x1b\[[0-9;]*m/g, "");
 }
+

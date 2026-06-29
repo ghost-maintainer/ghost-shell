@@ -124,6 +124,55 @@ async fn unlock(app: AppHandle, state: State<'_, AppState>, passphrase: String) 
 }
 
 #[tauri::command]
+async fn change_master_password(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    old_passphrase: String,
+    new_passphrase: String,
+) -> Result<(), String> {
+    let current_salt = *state.salt.lock().unwrap();
+    let current_key = *state.master_key.lock().unwrap();
+
+    let (k, s) = match (current_key, current_salt) {
+        (Some(k), Some(s)) => (k, s),
+        _ => return Err("Vault is locked".to_string()),
+    };
+
+    let derived_old_key = vault::derive_key(&old_passphrase, &s);
+    if derived_old_key != k {
+        return Err("Incorrect current master password".to_string());
+    }
+
+    let path = state.get_vault_path(&app)?;
+    let vault_data = if path.exists() {
+        vault::decrypt_vault_with_key(&path, &k)?
+    } else {
+        vault::VaultData::default()
+    };
+
+    let mut new_salt = [0u8; 16];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut new_salt);
+    let new_key = vault::derive_key(&new_passphrase, &new_salt);
+
+    let encrypted_bytes = vault::encrypt_vault(&vault_data, &new_key, &new_salt)?;
+    write_vault_file(&app, &path, encrypted_bytes)?;
+
+    *state.master_key.lock().unwrap() = Some(new_key);
+    *state.salt.lock().unwrap() = Some(new_salt);
+    secure_store::save_session(&app, &new_key, &new_salt)?;
+
+    let supabase_config = supabase::load_config(&app);
+    if supabase_config.session_token.is_some() {
+        let app_clone = app.clone();
+        tokio::spawn(async move {
+            let _ = supabase::push_vault_bytes(&app_clone).await;
+        });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn lock(state: State<'_, AppState>, ssh: State<'_, ssh::SshManager>) -> Result<(), String> {
     ssh.disconnect_all();
     *state.master_key.lock().unwrap() = None;
@@ -142,6 +191,13 @@ fn wipe_data(app: AppHandle, state: State<'_, AppState>, ssh: State<'_, ssh::Ssh
     if path.exists() {
         std::fs::remove_file(path).map_err(|e| e.to_string())?;
     }
+
+    let mut logs_path = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    logs_path.push("logs");
+    if logs_path.exists() {
+        let _ = std::fs::remove_dir_all(logs_path);
+    }
+
     Ok(())
 }
 
@@ -518,6 +574,47 @@ fn ssh_disconnect(ssh: State<'_, ssh::SshManager>, session_id: String) -> Result
 }
 
 #[tauri::command]
+fn append_session_log(app: AppHandle, session_id: String, chunk: String) -> Result<(), String> {
+    let mut path = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    path.push("logs");
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    path.push(format!("{}.log", session_id));
+    
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+        
+    file.write_all(chunk.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_session_log_content(app: AppHandle, session_id: String) -> Result<String, String> {
+    let mut path = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    path.push("logs");
+    path.push(format!("{}.log", session_id));
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_session_log_file(app: AppHandle, session_id: String) -> Result<(), String> {
+    let mut path = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    path.push("logs");
+    path.push(format!("{}.log", session_id));
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+
+#[tauri::command]
 async fn check_host_reachability(address: String, port: u16) -> bool {
     use std::net::ToSocketAddrs;
     use tokio::net::TcpStream;
@@ -586,6 +683,9 @@ pub fn run() {
             ssh_write,
             ssh_resize,
             ssh_disconnect,
+            append_session_log,
+            get_session_log_content,
+            delete_session_log_file,
             check_host_reachability,
             google_drive::get_backup_config,
             google_drive::save_backup_config,
@@ -602,7 +702,11 @@ pub fn run() {
             supabase::supabase_register_email,
             supabase::supabase_send_reset_password,
             supabase::supabase_await_reset_redirect,
-            supabase::supabase_update_password
+            supabase::supabase_update_password,
+            supabase::supabase_update_email,
+            supabase::supabase_wipe_cloud_data,
+            supabase::sync_logs,
+            change_master_password
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -26,12 +26,45 @@ export default function TerminalView() {
     authPrompt,
     submitAuth,
     cancelAuth,
+    findInTerminal,
+    focusTerminal,
   } = useTerminals();
 
   const [overlayRect, setOverlayRect] = React.useState(null);
   const [authValue, setAuthValue] = React.useState("");
   const [savePassphrase, setSavePassphrase] = React.useState(false);
   const mountRefs = React.useRef(new Map());
+
+  const [showSearch, setShowSearch] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const searchInputRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const handleToggleSearch = (e) => {
+      const { sessionId } = e.detail;
+      if (sessionId === activeId) {
+        setShowSearch((prev) => !prev);
+      }
+    };
+    window.addEventListener("toggle-terminal-search", handleToggleSearch);
+    return () => {
+      window.removeEventListener("toggle-terminal-search", handleToggleSearch);
+    };
+  }, [activeId]);
+
+  React.useEffect(() => {
+    if (showSearch && searchInputRef.current) {
+      searchInputRef.current.focus();
+      searchInputRef.current.select();
+    }
+  }, [showSearch]);
+
+  const handleCloseSearch = () => {
+    setShowSearch(false);
+    if (activeId) {
+      focusTerminal(activeId);
+    }
+  };
 
   React.useEffect(() => {
     if (!authPrompt) {
@@ -179,6 +212,61 @@ export default function TerminalView() {
               <div className="flex items-center gap-2 rounded-md bg-background/80 border px-2 py-1 text-xs text-muted-foreground">
                 <Loader2 className="size-3 animate-spin" />
                 Connecting...
+              </div>
+            </div>
+          )}
+
+          {showSearch && (
+            <div className="absolute top-3 right-3 z-20 flex items-center gap-2 rounded-lg border bg-background/95 backdrop-blur-md px-3 py-1.5 shadow-lg max-w-xs animate-in fade-in slide-in-from-top-2 duration-150 border-primary/20">
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Find in terminal..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  findInTerminal(activeId, e.target.value, "next");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    if (e.shiftKey) {
+                      findInTerminal(activeId, searchQuery, "prev");
+                    } else {
+                      findInTerminal(activeId, searchQuery, "next");
+                    }
+                  } else if (e.key === "Escape") {
+                    handleCloseSearch();
+                  }
+                }}
+                className="bg-transparent border-none text-xs outline-none text-foreground w-36 placeholder:text-muted-foreground/60"
+              />
+              <div className="flex items-center gap-0.5 border-l pl-2 border-muted dark:border-muted/50">
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className="h-5 w-5 rounded-md text-muted-foreground hover:text-foreground"
+                  onClick={() => findInTerminal(activeId, searchQuery, "prev")}
+                >
+                  <span className="sr-only">Previous</span>
+                  <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className="h-5 w-5 rounded-md text-muted-foreground hover:text-foreground"
+                  onClick={() => findInTerminal(activeId, searchQuery, "next")}
+                >
+                  <span className="sr-only">Next</span>
+                  <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className="h-5 w-5 rounded-md ml-1 text-muted-foreground hover:text-foreground"
+                  onClick={handleCloseSearch}
+                >
+                  <X className="size-3" />
+                </Button>
               </div>
             </div>
           )}

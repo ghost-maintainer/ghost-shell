@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
-import { clearSessionHistory, pruneExpiredSessions } from "@/lib/session-history";
+import { clearSessionHistory, pruneExpiredSessions, triggerLogSync } from "@/lib/session-history";
 
 const SecurityContext = createContext({
   unlocked: false,
@@ -27,6 +27,7 @@ export function SecurityProvider({ children }) {
       if (ok) {
         setUnlocked(true);
         setKeychainFailed(false);
+        triggerLogSync().catch(() => {});
       } else {
         setUnlocked(false);
         setKeychainFailed(true);
@@ -64,6 +65,7 @@ export function SecurityProvider({ children }) {
         if (autoUnlocked) {
           setUnlocked(true);
           setKeychainFailed(false);
+          triggerLogSync().catch(() => {});
         } else {
           setUnlocked(false);
           setKeychainFailed(true);
@@ -90,6 +92,7 @@ export function SecurityProvider({ children }) {
         setNeedsSetup(false);
         setUnlocked(true);
         setKeychainFailed(false);
+        triggerLogSync().catch(() => {});
         navigate("/dashboard/hosts");
         return true;
       }

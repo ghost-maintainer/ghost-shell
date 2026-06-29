@@ -2,6 +2,7 @@ import React from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { useSecurity } from "@/provider/security-provider";
 import { yieldToUi } from "@/lib/async";
 import { invoke } from "@/lib/tauri";
@@ -23,11 +24,12 @@ function getXtermTheme() {
     foreground: isDark ? "#e5e5e5" : "#171717",
     cursor: "#22c55e",
     selectionBackground: isDark ? "#264f3a" : "#bbf7d0",
+    selectionInactiveBackground: isDark ? "#264f3a88" : "#bbf7d088",
   };
 }
 
 function writeStatusLine(term, stage, message) {
-  term.writeln(`\r\n\x1b[90m[${stage}] ${message}\x1b[0m`);
+  term.writeln(`\r\x1b[90m[${stage}] ${message}\x1b[0m`);
 }
 
 function captureScrollback(term) {
@@ -72,9 +74,14 @@ function createTerminalInstance(sessionId, onUserInput) {
     fontSize: 13,
     fontFamily: "Geist Mono, ui-monospace, Menlo, monospace",
     theme: getXtermTheme(),
+    allowProposedApi: true,
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+
+  const search = new SearchAddon();
+  term.loadAddon(search);
+  term._searchAddon = search;
 
   term.onData(createWriteFlusher(sessionId, onUserInput));
 
@@ -196,6 +203,52 @@ export function TerminalProvider({ children }) {
     [flushRuntimeLog],
   );
 
+  const persistNow = React.useCallback((captureBuffers = false) => {
+    const currentSessions = sessionsRef.current;
+    if (currentSessions.length === 0) return;
+    for (const session of currentSessions) {
+      flushRuntimeLog(session.id);
+    }
+    savePersistedState(currentSessions, activeIdRef.current, runtimesRef, {
+      captureBuffers,
+    });
+  }, [flushRuntimeLog]);
+
+  const schedulePersist = React.useCallback(
+    (captureBuffers = false) => {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = setTimeout(
+        () => persistNow(captureBuffers),
+        captureBuffers ? 0 : 3000,
+      );
+    },
+    [persistNow],
+  );
+
+  const closeSession = React.useCallback(
+    (id) => {
+      flushRuntimeLog(id);
+      persistNow(true);
+      finalizeSessionRecord(id, "closed");
+      invoke("ssh_disconnect", { sessionId: id }).catch(() => {});
+      const runtime = runtimesRef.current.get(id);
+      if (runtime) {
+        runtime.term.dispose();
+        runtimesRef.current.delete(id);
+      }
+      connectQueueRef.current.delete(id);
+      setSessions((prev) => {
+        const next = prev.filter((s) => s.id !== id);
+        if (activeId === id) {
+          setActiveId(next.length ? next[next.length - 1].id : null);
+        }
+        return next;
+      });
+      setAuthPrompt((prev) => (prev?.sessionId === id ? null : prev));
+    },
+    [activeId, persistNow, flushRuntimeLog],
+  );
+
   const updateSession = React.useCallback((id, patch) => {
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, ...patch } : s)),
@@ -242,7 +295,7 @@ export function TerminalProvider({ children }) {
       channel.onmessage = (event) => {
         switch (event.type) {
           case "status": {
-            const line = `\r\n[${event.stage}] ${event.message}\r\n`;
+            const line = `\r[${event.stage}] ${event.message}\r\n`;
             updateSession(sessionId, {
               stage: event.stage,
               stageMessage: event.message,
@@ -285,14 +338,7 @@ export function TerminalProvider({ children }) {
             break;
           }
           case "closed": {
-            const line = `\r\n${event.message}\r\n`;
-            updateSession(sessionId, {
-              status: "disconnected",
-              stageMessage: event.message,
-            });
-            runtime.term.writeln(`\r\n\x1b[33m${event.message}\x1b[0m`);
-            appendRuntimeLog(sessionId, line);
-            flushRuntimeLog(sessionId);
+            closeSession(sessionId);
             break;
           }
           case "error": {
@@ -350,7 +396,7 @@ export function TerminalProvider({ children }) {
         }
       }
     },
-    [updateSession, refreshTerminal, appendRuntimeLog, flushRuntimeLog],
+    [updateSession, refreshTerminal, appendRuntimeLog, flushRuntimeLog, closeSession],
   );
 
   const attachTerminal = React.useCallback(
@@ -405,6 +451,167 @@ export function TerminalProvider({ children }) {
       const { term, fit } = createTerminalInstance(id, (data) =>
         appendRuntimeLog(id, data),
       );
+
+      term.attachCustomKeyEventHandler((e) => {
+        const isMac = navigator.userAgent.toLowerCase().includes("mac");
+        const isMod = isMac ? e.metaKey : e.ctrlKey;
+        const isW = e.key === "w" || e.key === "W" || e.keyCode === 87;
+        const isC = e.key === "c" || e.key === "C" || e.keyCode === 67;
+        const isV = e.key === "v" || e.key === "V" || e.keyCode === 86;
+        const isF = e.key === "f" || e.key === "F" || e.keyCode === 70;
+
+        if (e.type === "keydown") {
+          // --- macOS Shell Key Bindings (Cmd + Backspace, Cmd + Arrows, Option + Arrows) ---
+          if (isMac) {
+            // Cmd + Backspace: remove complete word (Ctrl+W)
+            if (e.metaKey && (e.key === "Backspace" || e.keyCode === 8)) {
+              invoke("ssh_write", {
+                sessionId: id,
+                data: new TextEncoder().encode("\x17"), // Send Ctrl+W
+              }).catch(() => {});
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+
+            // Option + Backspace: remove complete word (Ctrl+W)
+            if (e.altKey && (e.key === "Backspace" || e.keyCode === 8)) {
+              invoke("ssh_write", {
+                sessionId: id,
+                data: new TextEncoder().encode("\x17"), // Send Ctrl+W
+              }).catch(() => {});
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+
+            // Cmd + Left Arrow: move cursor to beginning of line (Ctrl+A)
+            if (e.metaKey && (e.key === "ArrowLeft" || e.keyCode === 37)) {
+              invoke("ssh_write", {
+                sessionId: id,
+                data: new TextEncoder().encode("\x01"), // Send Ctrl+A
+              }).catch(() => {});
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+
+            // Cmd + Right Arrow: move cursor to end of line (Ctrl+E)
+            if (e.metaKey && (e.key === "ArrowRight" || e.keyCode === 39)) {
+              invoke("ssh_write", {
+                sessionId: id,
+                data: new TextEncoder().encode("\x05"), // Send Ctrl+E
+              }).catch(() => {});
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+
+            // Option + Left Arrow: move cursor one word backward (ESC + b)
+            if (e.altKey && (e.key === "ArrowLeft" || e.keyCode === 37)) {
+              invoke("ssh_write", {
+                sessionId: id,
+                data: new TextEncoder().encode("\x1bb"), // Send ESC + b
+              }).catch(() => {});
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+
+            // Option + Right Arrow: move cursor one word forward (ESC + f)
+            if (e.altKey && (e.key === "ArrowRight" || e.keyCode === 39)) {
+              invoke("ssh_write", {
+                sessionId: id,
+                data: new TextEncoder().encode("\x1bf"), // Send ESC + f
+              }).catch(() => {});
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+          } else {
+            // Windows/Linux equivalents
+            // Ctrl + Backspace: remove complete word (Ctrl+W)
+            if (e.ctrlKey && (e.key === "Backspace" || e.keyCode === 8)) {
+              invoke("ssh_write", {
+                sessionId: id,
+                data: new TextEncoder().encode("\x17"), // Send Ctrl+W
+              }).catch(() => {});
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+            // Ctrl + Left Arrow: move cursor one word backward (ESC + b)
+            if (e.ctrlKey && (e.key === "ArrowLeft" || e.keyCode === 37)) {
+              invoke("ssh_write", {
+                sessionId: id,
+                data: new TextEncoder().encode("\x1bb"), // Send ESC + b
+              }).catch(() => {});
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+            // Ctrl + Right Arrow: move cursor one word forward (ESC + f)
+            if (e.ctrlKey && (e.key === "ArrowRight" || e.keyCode === 39)) {
+              invoke("ssh_write", {
+                sessionId: id,
+                data: new TextEncoder().encode("\x1bf"), // Send ESC + f
+              }).catch(() => {});
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+          }
+
+          // Ctrl+W or Cmd+W (Close Tab)
+          if ((e.ctrlKey || e.metaKey) && isW) {
+            closeSession(id);
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+          }
+
+          // Copy: Cmd+C (Mac) or Ctrl+C (Windows/Linux if selection exists)
+          if (isMod && isC) {
+            if (isMac || term.hasSelection()) {
+              if (term.hasSelection()) {
+                navigator.clipboard.writeText(term.getSelection());
+              }
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+          }
+
+          // Paste: Cmd+V (Mac) or Ctrl+V (Windows/Linux)
+          if (isMod && isV) {
+            navigator.clipboard.readText().then((text) => {
+              if (text) {
+                invoke("ssh_write", {
+                  sessionId: id,
+                  data: new TextEncoder().encode(text),
+                }).catch(() => {});
+              }
+            });
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+          }
+
+          // Find: Cmd+F (Mac) or Ctrl+F (Windows/Linux)
+          if (isMod && isF) {
+            window.dispatchEvent(
+              new CustomEvent("toggle-terminal-search", {
+                detail: { sessionId: id },
+              }),
+            );
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+          }
+        }
+        return true;
+      });
+
       runtimesRef.current.set(id, {
         term,
         fit,
@@ -436,7 +643,7 @@ export function TerminalProvider({ children }) {
       }
       return session;
     },
-    [appendRuntimeLog],
+    [appendRuntimeLog, closeSession],
   );
 
   const openSession = React.useCallback(
@@ -471,58 +678,13 @@ export function TerminalProvider({ children }) {
     [refreshTerminal],
   );
 
-  const persistNow = React.useCallback((captureBuffers = false) => {
-    const currentSessions = sessionsRef.current;
-    if (currentSessions.length === 0) return;
-    for (const session of currentSessions) {
-      flushRuntimeLog(session.id);
-    }
-    savePersistedState(currentSessions, activeIdRef.current, runtimesRef, {
-      captureBuffers,
-    });
-  }, [flushRuntimeLog]);
-
-  const schedulePersist = React.useCallback(
-    (captureBuffers = false) => {
-      clearTimeout(persistTimerRef.current);
-      persistTimerRef.current = setTimeout(
-        () => persistNow(captureBuffers),
-        captureBuffers ? 0 : 3000,
-      );
-    },
-    [persistNow],
-  );
-
-  const closeSession = React.useCallback(
-    (id) => {
-      flushRuntimeLog(id);
-      persistNow(true);
-      finalizeSessionRecord(id, "closed");
-      invoke("ssh_disconnect", { sessionId: id }).catch(() => {});
-      const runtime = runtimesRef.current.get(id);
-      if (runtime) {
-        runtime.term.dispose();
-        runtimesRef.current.delete(id);
-      }
-      connectQueueRef.current.delete(id);
-      setSessions((prev) => {
-        const next = prev.filter((s) => s.id !== id);
-        if (activeId === id) {
-          setActiveId(next.length ? next[next.length - 1].id : null);
-        }
-        return next;
-      });
-      setAuthPrompt((prev) => (prev?.sessionId === id ? null : prev));
-    },
-    [activeId, persistNow, flushRuntimeLog],
-  );
 
   const reconnect = React.useCallback(
     (id) => {
       const runtime = runtimesRef.current.get(id);
       if (!runtime) return;
-      const line = "\r\n── Reconnecting ──\r\n";
-      runtime.term.writeln("\r\n\x1b[90m── Reconnecting ──\x1b[0m");
+      const line = "\r── Reconnecting ──\r\n";
+      runtime.term.writeln("\r\x1b[90m── Reconnecting ──\x1b[0m");
       appendRuntimeLog(id, line);
       setAuthPrompt((prev) => (prev?.sessionId === id ? null : prev));
       connectSession(id);
@@ -713,6 +875,32 @@ export function TerminalProvider({ children }) {
     return () => observer.disconnect();
   }, []);
 
+  const findInTerminal = React.useCallback((sessionId, query, direction = "next") => {
+    const runtime = runtimesRef.current.get(sessionId);
+    if (!runtime?.term?._searchAddon) return;
+
+    const isDark = document.documentElement.classList.contains("dark");
+    const options = {
+      incremental: direction === "next",
+      decorations: {
+        matchBackground: isDark ? "#a16207" : "#fef08a",
+        matchBorder: isDark ? "#eab308" : "#ca8a04",
+        activeMatchBackground: isDark ? "#15803d" : "#bbf7d0",
+        activeMatchBorder: isDark ? "#22c55e" : "#16a34a",
+      }
+    };
+
+    if (direction === "next") {
+      runtime.term._searchAddon.findNext(query, options);
+    } else {
+      runtime.term._searchAddon.findPrevious(query, options);
+    }
+  }, []);
+
+  const focusTerminal = React.useCallback((sessionId) => {
+    runtimesRef.current.get(sessionId)?.term.focus();
+  }, []);
+
   const value = React.useMemo(
     () => ({
       sessions,
@@ -727,6 +915,8 @@ export function TerminalProvider({ children }) {
       authPrompt,
       submitAuth,
       cancelAuth,
+      findInTerminal,
+      focusTerminal,
     }),
     [
       sessions,
@@ -741,6 +931,8 @@ export function TerminalProvider({ children }) {
       authPrompt,
       submitAuth,
       cancelAuth,
+      findInTerminal,
+      focusTerminal,
     ],
   );
 

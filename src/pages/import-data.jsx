@@ -93,21 +93,8 @@ export default function ImportData() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto mt-8 space-y-6">
-        <div className="border bg-sidebar rounded-xl p-6 shadow-sm space-y-4">
-          <div className="flex items-center gap-3 border-b pb-4">
-            <div className="size-10 bg-primary/20 rounded-md flex items-center justify-center shrink-0 border border-primary/30">
-              <UploadIcon className="size-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-foreground leading-none">
-                Import Secure Vault
-              </h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                Restore keys and host connections from a backup file.
-              </p>
-            </div>
-          </div>
+      <div className="h-full flex items-start justify-center gap-6 min-h-0">
+        <div className="space-y-4 mx-auto max-w-xl">
 
           <div className="border border-muted-foreground/20 rounded-xl p-8 bg-muted/20 flex flex-col items-center justify-center gap-4 text-center">
             <input

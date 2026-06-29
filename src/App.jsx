@@ -8,6 +8,8 @@ import ExportData from "./pages/export-data";
 import ImportData from "./pages/import-data";
 import WipeData from "./pages/wipe-data";
 import Settings from "./pages/settings";
+import SupabasePassword from "./pages/supabase-password";
+import MasterPassword from "./pages/master-password";
 import Login from "./pages/login";
 import KeychainUnlockScreen from "./components/keychain-unlock-screen";
 import { SecurityProvider, useSecurity } from "./provider/security-provider";
@@ -123,6 +125,22 @@ export default function App() {
               element={
                 <AuthGuard>
                   <Settings />
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/dashboard/supabase-password"
+              element={
+                <AuthGuard>
+                  <SupabasePassword />
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/dashboard/master-password"
+              element={
+                <AuthGuard>
+                  <MasterPassword />
                 </AuthGuard>
               }
             />

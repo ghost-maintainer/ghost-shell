@@ -1,9 +1,6 @@
-import DashboardLayout from "@/layouts/dashboard";
+import React from "react";
+import { Navigate } from "react-router-dom";
 
 export default function Settings() {
-  return (
-    <DashboardLayout>
-      We Will let you know when we have something to show you here. Demo Update
-    </DashboardLayout>
-  );
+  return <Navigate to="/dashboard/master-password" replace />;
 }

@@ -44,7 +44,7 @@ Ghost Shell is a local-first SSH client. Your hosts, keys, and passwords live in
 
 - **Frontend** — React pages under `src/pages/`, shared UI in `src/components/`, global state in `src/provider/`.
 - **Backend** — Rust commands in `src-tauri/src/lib.rs`; SSH sessions stream terminal I/O over Tauri channels.
-- **Storage** — Encrypted `vault.enc` in the app data directory; optional cloud sync hooks (Google Drive / Supabase).
+- **Storage** — Encrypted `vault.enc` in the app data directory; optional cloud sync via Supabase (credentials baked in at CI build time).
 
 ### Application flow
 
@@ -121,7 +121,6 @@ CI builds run on every push; releases are published from `main`, version tags (`
 |----------|--------------|------|
 | **Windows** | x64 | `Ghost Shell_<ver>_x64-setup.exe` |
 | **Windows** | ARM64 | `Ghost Shell_<ver>_arm64-setup.exe` |
-| **Windows** | x64 / ARM64 | `Ghost Shell_<ver>_<arch>.msix` |
 | **Windows** | x64 / ARM64 | `Ghost Shell_<ver>_<arch>_en-US.msi` |
 | **macOS** | Apple Silicon | `Ghost Shell_<ver>_aarch64.dmg` |
 | **macOS** | Intel | `Ghost Shell_<ver>_x64.dmg` |
@@ -130,30 +129,17 @@ CI builds run on every push; releases are published from `main`, version tags (`
 
 `<ver>` is the semver from `package.json` (e.g. `1.0.0`).
 
+> **Note:** All release builds are **unsigned**. Your OS may warn on first launch — see [Installation](#installation) below.
+
 ---
 
 ## Installation
 
 ### Windows
 
-**NSIS installer (`.exe`)** — recommended for most users.
-
 1. Download `Ghost Shell_<ver>_x64-setup.exe` (or `arm64` on ARM PCs).
-2. If SmartScreen appears, choose **More info → Run anyway** (see [Signing](#signing) below).
+2. If SmartScreen shows *"Windows protected your PC"*, click **More info → Run anyway**.
 3. Complete the installer.
-
-**MSIX (`.msix`)** — modern package format; useful for sideloading or Microsoft Store submission.
-
-1. Download `Ghost Shell_<ver>_x64.msix` (or `_arm64`).
-2. **First time only:** trust the development certificate (CI builds use a self-signed cert):
-   ```powershell
-   # Run as Administrator — only needed for CI/dev-signed MSIX
-   winapp cert install .\packaging\windows\devcert.pfx
-   ```
-3. Double-click the `.msix` or run:
-   ```powershell
-   Add-AppxPackage ".\Ghost Shell_1.0.0.0_x64.msix"
-   ```
 
 **Silent MSI install (IT / managed):**
 ```powershell
@@ -187,12 +173,6 @@ sudo apt install "./Ghost Shell_1.0.0_amd64.deb"
 sudo dnf install "./Ghost Shell-1.0.0-1.x86_64.rpm"
 ```
 
-**Verify signed packages** (when `LINUX_GPG_PRIVATE_KEY` is configured in CI):
-```bash
-gpg --import ghost-compiler-signing-key.asc
-debsigs --verify Ghost\ Shell_1.0.0_amd64.deb   # or check .asc sidecars
-```
-
 ---
 
 ## Development
@@ -201,7 +181,18 @@ debsigs --verify Ghost\ Shell_1.0.0_amd64.deb   # or check .asc sidecars
 
 - [Node.js](https://nodejs.org) 20+ (CI uses 24)
 - [Rust](https://rustup.rs) stable + [Tauri prerequisites](https://tauri.app/start/prerequisites/)
-- **Windows MSIX builds:** [WinApp CLI](https://learn.microsoft.com/en-us/windows/apps/dev-tools/winapp-cli/) (`winget install Microsoft.WinAppCLI`)
+
+### Local environment
+
+Create a `.env` file in the project root for local dev (not committed):
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+VITE_GITHUB=https://github.com/GhostCompiler
+```
+
+Vite embeds `VITE_*` variables at build time. CI injects the Supabase keys from the **PROD** GitHub environment instead.
 
 ### The `ghost` CLI
 
@@ -210,7 +201,7 @@ All project tasks go through `scripts/ghost.js`:
 ```bash
 npm run ghost dev              # install deps + Tauri dev (Ctrl+R restart, Ctrl+C quit)
 npm run ghost build            # build for current OS
-npm run ghost build win:64     # Windows x64 (+ MSIX on Windows runners)
+npm run ghost build win:64     # Windows x64 (.exe + .msi)
 npm run ghost build linux      # Linux AppImage + deb + rpm
 npm run ghost build mac        # all macOS targets
 npm run ghost icon             # regenerate icons from src/assets/app-icon.png
@@ -221,8 +212,8 @@ npm run ghost icon             # regenerate icons from src/assets/app-icon.png
 | Target | Output |
 |--------|--------|
 | *(none)* / `linux` | Current OS installers |
-| `win:64` | Windows x64 `.exe` + `.msi` + `.msix` |
-| `win:arm` | Windows ARM64 `.exe` + `.msi` + `.msix` |
+| `win:64` | Windows x64 `.exe` + `.msi` |
+| `win:arm` | Windows ARM64 `.exe` + `.msi` |
 | `win` | Both Windows architectures |
 | `mac:intel` / `mac:arm` / `mac:universal` | macOS `.dmg` |
 | `mac` | All macOS variants |
@@ -233,7 +224,6 @@ Final artifacts are flattened into `build/`; intermediates (`src-tauri/target`, 
 build/
 ├── Ghost Shell_1.0.0_x64-setup.exe
 ├── Ghost Shell_1.0.0_x64_en-US.msi
-├── Ghost Shell_1.0.0.0_x64.msix
 ├── Ghost Shell_1.0.0_amd64.AppImage
 ├── Ghost Shell_1.0.0_amd64.deb
 └── Ghost Shell-1.0.0-1.x86_64.rpm
@@ -245,14 +235,9 @@ build/
 
 ```
 ghost-shell/
-├── .github/workflows/build.yml    # CI: parallel builds, signing, releases
-├── packaging/windows/
-│   └── Package.appxmanifest       # MSIX identity (Ghost Compiler / Ghost Shell)
+├── .github/workflows/build.yml    # CI: parallel builds + releases
 ├── scripts/
-│   ├── ghost.js                   # dev / build / icon CLI
-│   ├── package-msix.ps1           # MSIX pack + sign (winapp CLI)
-│   ├── sign-windows.ps1           # Authenticode hook for Tauri bundler
-│   └── sign-linux.sh              # GPG sign deb/rpm
+│   └── ghost.js                   # dev / build / icon CLI
 ├── src/                           # React frontend
 │   ├── pages/                     # hosts, keychain, logs, login, …
 │   ├── provider/                  # security, terminal, theme
@@ -261,8 +246,8 @@ ghost-shell/
 ├── src-tauri/                     # Rust / Tauri backend
 │   ├── src/                       # vault, ssh, secure_store, …
 │   ├── tauri.conf.json            # shared bundle + branding
-│   ├── tauri.windows.conf.json    # Windows signing + NSIS/WiX
-│   └── tauri.linux.conf.json      # deb/rpm metadata
+│   ├── tauri.windows.conf.json    # NSIS / WiX settings
+│   └── tauri.linux.conf.json      # deb / rpm metadata
 └── package.json
 ```
 
@@ -272,12 +257,19 @@ ghost-shell/
 
 Workflow: `.github/workflows/build.yml`
 
-| Job | Runners | Produces |
-|-----|---------|----------|
-| `linux` | `ubuntu-22.04` | AppImage, deb, rpm (+ GPG sigs if configured) |
-| `windows-x64` | `windows-latest` | NSIS exe, MSI, **MSIX x64** |
-| `windows-arm64` | `windows-latest` | NSIS exe, MSI, **MSIX arm64** |
+| Job | Runner | Produces |
+|-----|--------|----------|
+| `linux` | `ubuntu-22.04` | AppImage, deb, rpm |
+| `windows-x64` | `windows-latest` | NSIS `.exe`, WiX `.msi` |
+| `windows-arm64` | `windows-latest` | NSIS `.exe`, WiX `.msi` |
 | `macos-*` | `macos-latest` | DMG per architecture |
+
+All build jobs use the **PROD** GitHub environment. Required secrets:
+
+| Secret | Purpose |
+|--------|---------|
+| `VITE_SUPABASE_URL` | Supabase project URL (baked into release builds) |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key (baked into release builds) |
 
 **Release job** runs when:
 - A `v*` tag is pushed, or
@@ -288,50 +280,17 @@ Artifacts are merged and uploaded to GitHub Releases as `v<package.json version>
 
 ---
 
-## Signing
+## Unsigned builds
 
-### Windows (free / CI default)
+Release installers are **not code-signed**:
 
-CI generates a **self-signed development certificate** with Microsoft's WinApp CLI:
+| Platform | What to expect |
+|----------|----------------|
+| **Windows** | SmartScreen *"Windows protected your PC"* — click **More info → Run anyway** |
+| **macOS** | Gatekeeper block on first open — clear quarantine or use **Open Anyway** in System Settings |
+| **Linux** | Packages install normally; no publisher signature |
 
-```powershell
-cd packaging/windows
-winapp cert generate --if-exists skip
-```
-
-This certificate:
-- Signs **NSIS `.exe`**, **WiX `.msi`**, and **MSIX** during CI builds
-- Matches publisher **`CN=Ghost Compiler`** in `Package.appxmanifest`
-- Is suitable for **local testing and sideloading** — users must trust the cert once
-
-**Production signing (optional GitHub secrets):**
-
-| Secret | Purpose |
-|--------|---------|
-| `WINDOWS_SIGN_PFX_BASE64` | Base64-encoded `.pfx` from a trusted CA |
-| `WINDOWS_SIGN_PFX_PASSWORD` | PFX password |
-
-When set, CI uses your production cert instead of the generated dev cert.
-
-**Microsoft Store:** submit the MSIX or NSIS `.exe` via Partner Center — Store re-signs MSIX packages automatically (free).
-
-### Linux
-
-When repository secrets are configured, CI signs packages with GPG:
-
-| Secret | Purpose |
-|--------|---------|
-| `LINUX_GPG_PRIVATE_KEY` | ASCII-armored private key |
-| `LINUX_GPG_PASSPHRASE` | Key passphrase (if any) |
-| `LINUX_GPG_KEY_ID` | Optional explicit key id |
-
-Script: `scripts/sign-linux.sh` — uses `debsigs` / `dpkg-sig` for `.deb` and `rpmsign` for `.rpm`. A public key is exported as `ghost-compiler-signing-key.asc`.
-
-Without secrets, Linux packages build **unsigned** (same as before).
-
-### macOS
-
-Notarization and Apple Developer signing are **not yet configured**. macOS builds are ad-hoc signed only. See [Tauri macOS signing](https://v2.tauri.app/distribute/sign/macos/) when you add an Apple Developer account.
+Code signing (Windows Authenticode, Apple notarization, Linux GPG) is on the [roadmap](#roadmap) for a future release.
 
 ---
 
@@ -345,6 +304,7 @@ Notarization and Apple Developer signing are **not yet configured**. macOS build
 | Frontend | [React 19](https://react.dev) · [Vite](https://vite.dev) · [React Router](https://reactrouter.com) |
 | UI | [Tailwind CSS 4](https://tailwindcss.com) · [shadcn/ui](https://ui.shadcn.com) |
 | Crypto | AES-256-GCM vault · PBKDF2 · OS keychain |
+| Cloud sync | Supabase |
 
 ---
 
@@ -354,11 +314,9 @@ Notarization and Apple Developer signing are **not yet configured**. macOS build
 - [x] `ghost` developer CLI + parallel CI
 - [x] SSH terminal sessions + session logs
 - [x] Encrypted vault, keychain, host management
-- [x] Import / export, auto-unlock, Windows MSIX packaging
-- [x] Windows (self-signed) + Linux (GPG) CI signing hooks
+- [x] Import / export, auto-unlock, Supabase cloud sync
 - [ ] SFTP file browser & transfers
-- [ ] macOS notarization
-- [ ] Production OV/EV Windows certificate
+- [ ] Code signing & notarization (Windows, macOS, Linux)
 
 ---
 
