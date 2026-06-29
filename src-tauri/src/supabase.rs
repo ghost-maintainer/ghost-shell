@@ -956,9 +956,39 @@ pub async fn supabase_await_reset_redirect(
 pub async fn supabase_update_password(
     app: AppHandle,
     new_password: String,
+    current_password: Option<String>,
 ) -> Result<bool, String> {
     let config = load_config(&app);
-    let access_token = config.session_token.as_ref().ok_or("No active session found for password update.")?;
+    let access_token = config
+        .session_token
+        .as_ref()
+        .ok_or("No active session found for password update.")?;
+
+    if let Some(current) = current_password {
+        let email = config
+            .user_email
+            .as_ref()
+            .ok_or("No signed-in account email found.")?;
+
+        let client = reqwest::Client::new();
+        let verify_body = serde_json::json!({
+            "email": email,
+            "password": current
+        });
+
+        let verify_response = client
+            .post(format!("{}/auth/v1/token?grant_type=password", config.url))
+            .header("apikey", &config.anon_key)
+            .header("Content-Type", "application/json")
+            .json(&verify_body)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to verify current password: {}", e))?;
+
+        if !verify_response.status().is_success() {
+            return Err("Current password is incorrect.".to_string());
+        }
+    }
 
     let client = reqwest::Client::new();
     let body = serde_json::json!({
@@ -985,7 +1015,10 @@ pub async fn supabase_update_password(
         return Err(msg.to_string());
     }
 
-    let has_cloud_vault = cloud_profile_exists(&config.url, &config.anon_key, access_token).await.unwrap_or(false);
+    let has_cloud_vault =
+        cloud_profile_exists(&config.url, &config.anon_key, access_token)
+            .await
+            .unwrap_or(false);
 
     Ok(has_cloud_vault)
 }

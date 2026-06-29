@@ -328,7 +328,7 @@ export default function KeyChain() {
                       >
                         <Save className="size-3.5" />
                         <span className="text-sm text-muted-foreground shrink-0">
-                          Edit
+                          Edit Key
                         </span>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
@@ -367,15 +367,15 @@ export default function KeyChain() {
               {sheetMode === "add"
                 ? "Add Key"
                 : sheetMode === "edit"
-                ? "Edit Key"
-                : "View Key Details"}
+                  ? "Edit Key"
+                  : "View Key Details"}
             </SheetTitle>
             <SheetDescription className="sr-only">
               {sheetMode === "add"
                 ? "Import an existing SSH key pair."
                 : sheetMode === "edit"
-                ? "Modify this SSH key pair."
-                : "Secure information for this SSH key pair."}
+                  ? "Modify this SSH key pair."
+                  : "Secure information for this SSH key pair."}
             </SheetDescription>
           </SheetHeader>
           <div className="px-2 flex-1 overflow-y-auto space-y-3">
@@ -425,7 +425,9 @@ export default function KeyChain() {
                   onChange={(e) => setAddPrivateKey(e.target.value)}
                   readOnly={sheetMode === "view"}
                   disabled={loading}
-                  aria-invalid={attemptedSubmit && !addPrivateKey ? "true" : "false"}
+                  aria-invalid={
+                    attemptedSubmit && !addPrivateKey ? "true" : "false"
+                  }
                 />
               </div>
               <div className="space-y-1">
@@ -541,10 +543,7 @@ export default function KeyChain() {
               </>
             ) : (
               <>
-                <Button
-                  className="flex-1"
-                  onClick={() => setSheetMode("edit")}
-                >
+                <Button className="flex-1" onClick={() => setSheetMode("edit")}>
                   <Save className="size-4" />
                   Edit
                 </Button>
@@ -747,9 +746,12 @@ export default function KeyChain() {
                 <TrashIcon className="size-5 text-destructive" />
               </div>
               <div className="space-y-0.5">
-                <p className="text-sm font-semibold text-foreground">Delete key</p>
+                <p className="text-sm font-semibold text-foreground">
+                  Delete key
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  This will permanently remove "{keyToDelete.name}". This cannot be undone.
+                  This will permanently remove "{keyToDelete.name}". This cannot
+                  be undone.
                 </p>
               </div>
             </div>

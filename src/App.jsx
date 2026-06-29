@@ -8,7 +8,7 @@ import ExportData from "./pages/export-data";
 import ImportData from "./pages/import-data";
 import WipeData from "./pages/wipe-data";
 import Settings from "./pages/settings";
-import SupabasePassword from "./pages/supabase-password";
+import PasswordUpdate from "./pages/password-update";
 import MasterPassword from "./pages/master-password";
 import Login from "./pages/login";
 import KeychainUnlockScreen from "./components/keychain-unlock-screen";
@@ -129,10 +129,10 @@ export default function App() {
               }
             />
             <Route
-              path="/dashboard/supabase-password"
+              path="/dashboard/password-update"
               element={
                 <AuthGuard>
-                  <SupabasePassword />
+                  <PasswordUpdate />
                 </AuthGuard>
               }
             />

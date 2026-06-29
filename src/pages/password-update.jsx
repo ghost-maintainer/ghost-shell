@@ -3,43 +3,67 @@ import DashboardLayout from "@/layouts/dashboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useNavigate } from "react-router-dom";
 import { invoke } from "@/lib/tauri";
 import {
-  LockIcon,
+  Key,
   Loader2,
   CheckCircle2,
   AlertTriangle,
-  Shield,
+  CloudOff,
 } from "lucide-react";
 
-export default function MasterPassword() {
-  const [currentMaster, setCurrentMaster] = React.useState("");
-  const [newMaster, setNewMaster] = React.useState("");
-  const [confirmMaster, setConfirmMaster] = React.useState("");
+export default function PasswordUpdate() {
+  const navigate = useNavigate();
+  const [isOnline, setIsOnline] = React.useState(false);
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [success, setSuccess] = React.useState("");
   const [error, setError] = React.useState("");
 
-  const handleUpdateMaster = async (e) => {
+  const loadConfig = React.useCallback(() => {
+    invoke("get_cloud_status")
+      .then((cfg) => {
+        if (cfg) {
+          setIsOnline(Boolean(cfg.session_token && !cfg.is_offline));
+        }
+      })
+      .catch((err) => console.error("Failed to load cloud status:", err));
+  }, []);
+
+  React.useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
+
+  const handleUpdatePassword = async (e) => {
     e.preventDefault();
-    if (newMaster !== confirmMaster) {
+    if (!currentPassword.trim()) {
+      setError("Current password is required.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
       setError("New passwords do not match.");
       return;
     }
+    if (newPassword.length < 6) {
+      setError("New password must be at least 6 characters.");
+      return;
+    }
+
     setLoading(true);
     setSuccess("");
     setError("");
     try {
-      await invoke("change_master_password", {
-        oldPassphrase: currentMaster,
-        newPassphrase: newMaster,
+      await invoke("supabase_update_password", {
+        newPassword,
+        currentPassword,
       });
-      setSuccess(
-        "Master password changed. All local credentials and keys have been re-encrypted.",
-      );
-      setCurrentMaster("");
-      setNewMaster("");
-      setConfirmMaster("");
+      setSuccess("Password updated successfully.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
     } catch (err) {
       setError(String(err));
     } finally {
@@ -54,31 +78,40 @@ export default function MasterPassword() {
           <div className="p-8 flex flex-col items-center justify-center gap-4 text-center">
             <div className="flex items-center gap-3 border-b pb-4 w-full">
               <div className="size-10 bg-primary/20 rounded-md flex items-center justify-center shrink-0 border border-primary/30">
-                <LockIcon className="size-5 text-primary" />
+                <Key className="size-5 text-primary" />
               </div>
               <div className="text-left">
                 <h2 className="text-lg font-semibold text-foreground leading-none">
-                  Master Password
+                  Password Update
                 </h2>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Update your local vault passphrase and re-encrypt stored data.
+                  Change your cloud sync account login password.
                 </p>
               </div>
             </div>
 
-            <div className="w-full space-y-4 py-2 text-left">
-              <div className="flex flex-col gap-2 bg-muted p-4 rounded-lg">
-                <div className="flex items-center gap-2 text-primary">
-                  <Shield className="size-5 shrink-0" />
-                  <span className="text-sm font-semibold">Security notice</span>
+            {!isOnline ? (
+              <div className="w-full space-y-4 py-2">
+                <div className="flex flex-col gap-2 bg-muted p-4 rounded-lg text-left">
+                  <div className="flex items-center gap-2 text-primary">
+                    <CloudOff className="size-5 shrink-0" />
+                    <span className="text-sm font-semibold">Currently offline</span>
+                  </div>
+                  <p className="text-xs leading-relaxed text-muted-foreground mt-1">
+                    Sign in to your cloud account before updating your login
+                    password.
+                  </p>
                 </div>
-                <p className="text-xs leading-relaxed text-muted-foreground mt-1">
-                  Changing your master password re-encrypts all local host
-                  records, SSH private keys, and keychain entries on this device.
-                </p>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={() => navigate("/dashboard/login")}
+                >
+                  Go to Sign In
+                </Button>
               </div>
-
-              <form onSubmit={handleUpdateMaster} className="space-y-4">
+            ) : (
+              <form onSubmit={handleUpdatePassword} className="w-full space-y-4 py-2 text-left">
                 {success && (
                   <div className="p-4 rounded-lg flex items-start gap-3 text-xs leading-relaxed border bg-primary/10 border-primary/20 text-primary-foreground">
                     <CheckCircle2 className="size-4 shrink-0 text-primary" />
@@ -94,15 +127,15 @@ export default function MasterPassword() {
                 )}
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="current-master" className="text-xs">
-                    Current Master Password
+                  <Label htmlFor="current-pass" className="text-xs">
+                    Current Password
                   </Label>
                   <Input
-                    id="current-master"
+                    id="current-pass"
                     type="password"
                     required
-                    value={currentMaster}
-                    onChange={(e) => setCurrentMaster(e.target.value)}
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
                     placeholder="••••••••"
                     className="h-9 text-xs"
                     disabled={loading}
@@ -110,15 +143,15 @@ export default function MasterPassword() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="new-master" className="text-xs">
-                    New Master Password
+                  <Label htmlFor="new-pass" className="text-xs">
+                    New Password
                   </Label>
                   <Input
-                    id="new-master"
+                    id="new-pass"
                     type="password"
                     required
-                    value={newMaster}
-                    onChange={(e) => setNewMaster(e.target.value)}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="••••••••"
                     className="h-9 text-xs"
                     disabled={loading}
@@ -126,15 +159,15 @@ export default function MasterPassword() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="confirm-master" className="text-xs">
-                    Confirm New Master Password
+                  <Label htmlFor="confirm-pass" className="text-xs">
+                    Confirm New Password
                   </Label>
                   <Input
-                    id="confirm-master"
+                    id="confirm-pass"
                     type="password"
                     required
-                    value={confirmMaster}
-                    onChange={(e) => setConfirmMaster(e.target.value)}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••"
                     className="h-9 text-xs"
                     disabled={loading}
@@ -149,11 +182,11 @@ export default function MasterPassword() {
                     disabled={loading}
                   >
                     {loading && <Loader2 className="size-4 mr-2 animate-spin" />}
-                    {loading ? "Updating..." : "Update Master Password"}
+                    {loading ? "Updating..." : "Update Password"}
                   </Button>
                 </div>
               </form>
-            </div>
+            )}
           </div>
         </div>
       </div>

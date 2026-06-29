@@ -165,7 +165,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
   const tabsClass = `text-xs flex flex-row items-center justify-center gap-1.5 px-3 py-2 pb-1 border rounded-t-sm border-b-0 data-[active=true]:bg-primary/20 max-w-[140px] min-w-[60px] truncate shrink`;
 
   return (
-    <div className="flex flex-col h-svh overflow-hidden">
+    <div className="flex flex-col h-svh">
       <header
         ref={headerRef}
         className={cn(
@@ -186,6 +186,8 @@ export default function DashboardLayout({ children, sidebar = true }) {
               return (
                 <button
                   key={index}
+                  type="button"
+                  data-tauri-drag-region={false}
                   className={tabsClass}
                   onClick={() => handleNavigate(item.href)}
                   data-active={
@@ -200,6 +202,8 @@ export default function DashboardLayout({ children, sidebar = true }) {
             {visibleSessions.map((session) => (
               <button
                 key={session.id}
+                type="button"
+                data-tauri-drag-region={false}
                 className={tabsClass}
                 onClick={() => setActive(session.id)}
                 data-active={activeId === session.id}
@@ -233,7 +237,11 @@ export default function DashboardLayout({ children, sidebar = true }) {
             {hiddenSessions.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="text-xs flex flex-row items-center justify-center gap-1.5 px-3 py-2 pb-1 border rounded-t-sm border-b-0 hover:bg-muted shrink-0 cursor-pointer">
+                  <button
+                    type="button"
+                    data-tauri-drag-region={false}
+                    className="text-xs flex flex-row items-center justify-center gap-1.5 px-3 py-2 pb-1 border rounded-t-sm border-b-0 hover:bg-muted shrink-0 cursor-pointer"
+                  >
                     <span className="font-semibold text-primary">
                       +{hiddenSessions.length} more
                     </span>
@@ -294,6 +302,7 @@ export default function DashboardLayout({ children, sidebar = true }) {
             <TooltipTrigger asChild>
               <Button
                 size="icon-xs"
+                data-tauri-drag-region={false}
                 className="rounded-xs cursor-pointer shrink-0"
                 onClick={() => handleNavigate("/dashboard/add-hosts")}
               >
@@ -305,7 +314,10 @@ export default function DashboardLayout({ children, sidebar = true }) {
             </TooltipContent>
           </Tooltip>
         </section>
-        <section className="flex items-center justify-end gap-2 pr-2 shrink-0">
+        <section
+          className="flex items-center justify-end gap-2 pr-2 shrink-0"
+          data-tauri-drag-region={false}
+        >
           <ButtonGroup>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -355,73 +367,76 @@ export default function DashboardLayout({ children, sidebar = true }) {
               </TooltipContent>
             </Tooltip>
           </ButtonGroup>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button className="flex flex-row items-center justify-center size-8 hover:bg-muted/40 transition-colors border border-border outline-none text-left gap-2 min-w-0 rounded-full text-muted-foreground bg-background cursor-pointer">
+          <Tooltip>
+            <DropdownMenu>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex flex-row items-center justify-center size-8 hover:bg-muted/40 transition-colors border border-border outline-none text-left gap-2 min-w-0 rounded-full text-muted-foreground bg-background cursor-pointer"
+                  >
                     <User className="size-3.5 my-auto" />
                   </button>
-                </TooltipTrigger>
-                <TooltipContent className="py-1 rounded-xs">
-                  <p className="text-xs">Manage Account</p>
-                </TooltipContent>
-              </Tooltip>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              side="top"
-              className="rounded-xs w-48 px-2 py-1.5 space-y-1"
-            >
-              {isOnline ? (
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <DropdownMenuContent
+                align="end"
+                side="bottom"
+                className="rounded-xs w-48 px-2 py-1.5 space-y-1"
+              >
+                {isOnline ? (
+                  <DropdownMenuItem
+                    onClick={() => navigate("/dashboard/password-update")}
+                    className="cursor-pointer gap-2 py-1.5 text-xs"
+                  >
+                    <Key className="size-3.5 my-auto" />
+                    <span>Password Update</span>
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    onClick={() => navigate("/dashboard/login")}
+                    className="cursor-pointer gap-2 py-1.5 text-xs font-semibold text-primary"
+                  >
+                    <User className="size-3.5 my-auto" />
+                    <span>Sign In / Sync</span>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
-                  onClick={() => navigate("/dashboard/supabase-password")}
+                  onClick={() => navigate("/dashboard/master-password")}
                   className="cursor-pointer gap-2 py-1.5 text-xs"
                 >
-                  <Key className="size-3.5 my-auto" />
-                  <span>Password Update</span>
+                  <LockIcon className="size-3.5 my-auto" />
+                  <span>Master Password</span>
                 </DropdownMenuItem>
-              ) : (
+                <div className="border-t my-1" />
                 <DropdownMenuItem
-                  onClick={() => navigate("/dashboard/login")}
-                  className="cursor-pointer gap-2 py-1.5 text-xs font-semibold text-primary"
+                  onClick={() => navigate("/dashboard/export-data")}
+                  className="cursor-pointer gap-2 py-1.5 text-xs"
                 >
-                  <User className="size-3.5 my-auto" />
-                  <span>Sign In / Sync</span>
+                  <Download className="size-3.5 my-auto" />
+                  <span>Export Data</span>
                 </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onClick={() => navigate("/dashboard/master-password")}
-                className="cursor-pointer gap-2 py-1.5 text-xs"
-              >
-                <LockIcon className="size-3.5 my-auto" />
-                <span>Master Password</span>
-              </DropdownMenuItem>
-              <div className="border-t my-1" />
-              <DropdownMenuItem
-                onClick={() => navigate("/dashboard/export-data")}
-                className="cursor-pointer gap-2 py-1.5 text-xs"
-              >
-                <Download className="size-3.5 my-auto" />
-                <span>Export Data</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => navigate("/dashboard/import-data")}
-                className="cursor-pointer gap-2 py-1.5 text-xs"
-              >
-                <Upload className="size-3.5 my-auto" />
-                <span>Import Data</span>
-              </DropdownMenuItem>
-              <div className="border-t my-1" />
-              <DropdownMenuItem
-                onClick={() => setShowWipeConfirm(true)}
-                className="cursor-pointer gap-2 py-1.5 text-xs text-destructive hover:text-destructive"
-              >
-                <LogOut className="size-3.5 my-auto" />
-                <span>Logout</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <DropdownMenuItem
+                  onClick={() => navigate("/dashboard/import-data")}
+                  className="cursor-pointer gap-2 py-1.5 text-xs"
+                >
+                  <Upload className="size-3.5 my-auto" />
+                  <span>Import Data</span>
+                </DropdownMenuItem>
+                <div className="border-t my-1" />
+                <DropdownMenuItem
+                  onClick={() => setShowWipeConfirm(true)}
+                  className="cursor-pointer gap-2 py-1.5 text-xs text-destructive hover:text-destructive"
+                >
+                  <LogOut className="size-3.5 my-auto" />
+                  <span>Logout</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <TooltipContent className="py-1 rounded-xs">
+              <p className="text-xs">Manage Account</p>
+            </TooltipContent>
+          </Tooltip>
         </section>
       </header>
 
