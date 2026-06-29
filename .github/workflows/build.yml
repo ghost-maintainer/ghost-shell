@@ -211,3 +211,16 @@ jobs:
               --generate-notes \
               release-assets/*
           fi
+
+      - name: Clean up temporary artifacts
+        uses: geekyeggo/delete-artifact@v6
+        with:
+          name: |
+            ghost-shell-linux-appimage
+            ghost-shell-linux-deb
+            ghost-shell-linux-rpm
+            ghost-shell-linux-*
+            ghost-shell-windows-*
+            ghost-shell-macos-*
+          useGlob: true
+          failOnError: false
