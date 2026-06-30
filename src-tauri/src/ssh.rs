@@ -30,14 +30,14 @@ pub enum SshEvent {
     NeedPassphrase,
 }
 
-enum SshCmd {
+pub(crate) enum SshCmd {
     Data(Vec<u8>),
     Resize { cols: u32, rows: u32 },
     Close,
 }
 
 pub struct SshManager {
-    sessions: Mutex<HashMap<String, mpsc::UnboundedSender<SshCmd>>>,
+    pub(crate) sessions: Mutex<HashMap<String, mpsc::UnboundedSender<SshCmd>>>,
 }
 
 impl Default for SshManager {
@@ -282,7 +282,10 @@ async fn run_session(
     )?;
 
     let addr = format!("{}:{}", host.address, host.port);
-    let config = Arc::new(Config::default());
+    let mut config = Config::default();
+    config.keepalive_interval = Some(std::time::Duration::from_secs(10));
+    config.keepalive_max = 3;
+    let config = Arc::new(config);
 
     emit_status(on_event, "tcp", "Opening TCP connection...")?;
     let mut session = client::connect(config, addr.as_str(), ClientHandler)

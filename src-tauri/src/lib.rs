@@ -575,6 +575,16 @@ fn ssh_disconnect(ssh: State<'_, ssh::SshManager>, session_id: String) -> Result
 }
 
 #[tauri::command]
+fn ssh_is_alive(ssh: State<'_, ssh::SshManager>, session_id: String) -> bool {
+    let sessions = ssh.sessions.lock().unwrap();
+    if let Some(tx) = sessions.get(&session_id) {
+        !tx.is_closed()
+    } else {
+        false
+    }
+}
+
+#[tauri::command]
 fn append_session_log(app: AppHandle, session_id: String, chunk: String) -> Result<(), String> {
     let mut path = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
     path.push("logs");
@@ -685,6 +695,7 @@ pub fn run() {
             ssh_write,
             ssh_resize,
             ssh_disconnect,
+            ssh_is_alive,
             append_session_log,
             get_session_log_content,
             delete_session_log_file,

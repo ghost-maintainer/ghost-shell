@@ -42,7 +42,7 @@ function captureScrollback(term) {
   return lines.join("\n");
 }
 
-function createWriteFlusher(sessionId, onUserInput) {
+function createWriteFlusher(sessionId, runtimesRef, onUserInput) {
   let pending = "";
   let scheduled = false;
 
@@ -52,6 +52,30 @@ function createWriteFlusher(sessionId, onUserInput) {
     const chunk = pending;
     pending = "";
     onUserInput?.(chunk);
+
+    const runtime = runtimesRef.current?.get(sessionId);
+    if (runtime) {
+      if (!runtime.typedBuffer) {
+        runtime.typedBuffer = "";
+      }
+      for (let i = 0; i < chunk.length; i++) {
+        const char = chunk[i];
+        if (char === "\r" || char === "\n") {
+          const cmd = runtime.typedBuffer.trim().toLowerCase();
+          if (cmd === "exit" || cmd === "logout") {
+            runtime.userExited = true;
+          }
+          runtime.typedBuffer = "";
+        } else if (char === "\x7f" || char === "\x08") {
+          runtime.typedBuffer = runtime.typedBuffer.slice(0, -1);
+        } else if (char === "\x04") {
+          runtime.userExited = true;
+        } else if (char.match(/^[a-zA-Z0-9_-]$/)) {
+          runtime.typedBuffer += char;
+        }
+      }
+    }
+
     invoke("ssh_write", {
       sessionId,
       data: new TextEncoder().encode(chunk),
@@ -67,7 +91,7 @@ function createWriteFlusher(sessionId, onUserInput) {
   };
 }
 
-function createTerminalInstance(sessionId, onUserInput) {
+function createTerminalInstance(sessionId, runtimesRef, onUserInput) {
   const term = new Terminal({
     scrollback: 10000,
     convertEol: true,
@@ -84,7 +108,7 @@ function createTerminalInstance(sessionId, onUserInput) {
   term.loadAddon(search);
   term._searchAddon = search;
 
-  term.onData(createWriteFlusher(sessionId, onUserInput));
+  term.onData(createWriteFlusher(sessionId, runtimesRef, onUserInput));
 
   let resizeTimer;
   term.onResize(({ cols, rows }) => {
@@ -296,6 +320,12 @@ export function TerminalProvider({ children }) {
         authType: null,
       });
 
+      if (secrets && Object.keys(secrets).length > 0) {
+        runtime.credentials = { ...runtime.credentials, ...secrets };
+      }
+
+      runtime.userExited = false;
+
       if (runtime.channel) {
         runtime.channel.onmessage = null;
       }
@@ -316,6 +346,7 @@ export function TerminalProvider({ children }) {
             break;
           }
           case "connected":
+            runtime.reconnectCount = 0;
             updateSession(sessionId, {
               status: "connected",
               stage: "connected",
@@ -349,18 +380,11 @@ export function TerminalProvider({ children }) {
             break;
           }
           case "closed": {
-            closeSession(sessionId);
+            handleDisconnect(sessionId, event.message || "Connection closed");
             break;
           }
           case "error": {
-            const line = `\r\nError: ${event.message}\r\n`;
-            updateSession(sessionId, {
-              status: "error",
-              stageMessage: event.message,
-            });
-            runtime.term.writeln(`\r\n\x1b[31m${event.message}\x1b[0m`);
-            appendRuntimeLog(sessionId, line);
-            flushRuntimeLog(sessionId);
+            handleDisconnect(sessionId, event.message || "Connection error");
             break;
           }
           case "needPassword":
@@ -386,13 +410,17 @@ export function TerminalProvider({ children }) {
 
       try {
         refreshTerminal(sessionId);
+        const connectionSecrets = {
+          ...runtime.credentials,
+          ...secrets
+        };
         await invoke("ssh_connect", {
           sessionId,
           hostId: runtime.host.id,
           cols: runtime.term.cols,
           rows: runtime.term.rows,
-          password: secrets.password ?? null,
-          passphrase: secrets.passphrase ?? null,
+          password: connectionSecrets.password ?? null,
+          passphrase: connectionSecrets.passphrase ?? null,
           onEvent: channel,
         });
       } catch (err) {
@@ -410,6 +438,120 @@ export function TerminalProvider({ children }) {
     [updateSession, refreshTerminal, appendRuntimeLog, flushRuntimeLog, closeSession],
   );
 
+  const attemptReconnect = React.useCallback(
+    async (sessionId) => {
+      const runtime = runtimesRef.current.get(sessionId);
+      if (!runtime) return;
+
+      const exists = sessionsRef.current.some((s) => s.id === sessionId);
+      if (!exists) return;
+
+      const session = sessionsRef.current.find((s) => s.id === sessionId);
+      if (session && (session.status === "connecting" || session.status === "connected")) {
+        return;
+      }
+
+      if (!runtime.reconnectCount) {
+        runtime.reconnectCount = 0;
+      }
+      runtime.reconnectCount++;
+
+      if (runtime.reconnectCount > 5) {
+        updateSession(sessionId, {
+          status: "error",
+          stageMessage: "Reconnection failed after 5 attempts.",
+        });
+        runtime.term.writeln(`\r\n\x1b[31m[Reconnection failed after 5 attempts. Focus tab to try again.]\x1b[0m\r\n`);
+        runtime.reconnectCount = 0;
+        return;
+      }
+
+      const delay = Math.min(1000 * Math.pow(2, runtime.reconnectCount - 1), 10000);
+      
+      setTimeout(async () => {
+        const stillExists = sessionsRef.current.some((s) => s.id === sessionId);
+        if (!stillExists) return;
+
+        const currentSession = sessionsRef.current.find((s) => s.id === sessionId);
+        if (currentSession && (currentSession.status === "connecting" || currentSession.status === "connected")) {
+          return;
+        }
+
+        runtime.term.writeln(`\r\x1b[90m── Reconnecting (Attempt ${runtime.reconnectCount}/5) ──\x1b[0m`);
+        try {
+          await connectSession(sessionId);
+        } catch {
+          // connectSession catches internally
+        }
+      }, delay);
+    },
+    [connectSession, updateSession],
+  );
+
+  const handleDisconnect = React.useCallback(
+    (sessionId, reason) => {
+      const runtime = runtimesRef.current.get(sessionId);
+      if (!runtime) return;
+
+      if (
+        runtime.userExited ||
+        (reason &&
+          (reason.includes("Process exited") ||
+            reason.includes("exit") ||
+            reason.includes("Closed by application") ||
+            reason.includes("Disconnected by application")))
+      ) {
+        closeSession(sessionId);
+        return;
+      }
+
+      const session = sessionsRef.current.find((s) => s.id === sessionId);
+      if (session && session.status === "disconnected") {
+        return;
+      }
+
+      updateSession(sessionId, {
+        status: "disconnected",
+        stageMessage: `Disconnected: ${reason}`,
+      });
+
+      runtime.term.writeln(`\r\n\x1b[33m[Connection lost: ${reason}]\x1b[0m`);
+      runtime.term.writeln(`\x1b[36m[Attempting to reconnect...]\x1b[0m\r\n`);
+
+      attemptReconnect(sessionId);
+    },
+    [closeSession, updateSession, attemptReconnect],
+  );
+
+  const checkConnectionAlive = React.useCallback(
+    async (sessionId) => {
+      const runtime = runtimesRef.current.get(sessionId);
+      if (!runtime) return;
+
+      const session = sessionsRef.current.find((s) => s.id === sessionId);
+      if (!session) return;
+
+      if (session.status === "disconnected" || session.status === "error") {
+        runtime.reconnectCount = 0;
+        runtime.term.writeln(`\r\n\x1b[36m[Focus detected: reconnecting...]\x1b[0m\r\n`);
+        attemptReconnect(sessionId);
+        return;
+      }
+
+      if (session.status !== "connected") return;
+
+      try {
+        const isAlive = await invoke("ssh_is_alive", { sessionId });
+        if (!isAlive) {
+          handleDisconnect(sessionId, "Connection timeout / closed");
+        }
+      } catch {
+        handleDisconnect(sessionId, "Connection check failed");
+      }
+    },
+    [handleDisconnect, attemptReconnect],
+  );
+
   const attachTerminal = React.useCallback(
     (sessionId, element) => {
       const runtime = runtimesRef.current.get(sessionId);
@@ -424,7 +566,7 @@ export function TerminalProvider({ children }) {
       if (detached) {
         runtime.savedScrollback = captureScrollback(runtime.term);
         runtime.term.dispose();
-        const { term, fit } = createTerminalInstance(sessionId, (data) =>
+        const { term, fit } = createTerminalInstance(sessionId, runtimesRef, (data) =>
           appendRuntimeLog(sessionId, data),
         );
         runtime.term = term;
@@ -459,7 +601,7 @@ export function TerminalProvider({ children }) {
 
   const registerRuntime = React.useCallback(
     (id, host, meta, scrollback = "", append = true, createHistory = true) => {
-      const { term, fit } = createTerminalInstance(id, (data) =>
+      const { term, fit } = createTerminalInstance(id, runtimesRef, (data) =>
         appendRuntimeLog(id, data),
       );
 
@@ -683,10 +825,11 @@ export function TerminalProvider({ children }) {
         requestAnimationFrame(() => {
           refreshTerminal(id);
           runtimesRef.current.get(id)?.term.focus();
+          checkConnectionAlive(id);
         });
       });
     },
-    [refreshTerminal],
+    [refreshTerminal, checkConnectionAlive],
   );
 
 
@@ -886,6 +1029,19 @@ export function TerminalProvider({ children }) {
     return () => observer.disconnect();
   }, []);
 
+  React.useEffect(() => {
+    const handleWindowFocus = () => {
+      const activeId = activeIdRef.current;
+      if (activeId) {
+        checkConnectionAlive(activeId);
+      }
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+  }, [checkConnectionAlive]);
+
   const findInTerminal = React.useCallback((sessionId, query, direction = "next") => {
     const runtime = runtimesRef.current.get(sessionId);
     if (!runtime?.term?._searchAddon) return;
@@ -928,6 +1084,7 @@ export function TerminalProvider({ children }) {
       cancelAuth,
       findInTerminal,
       focusTerminal,
+      checkConnectionAlive,
     }),
     [
       sessions,
@@ -944,6 +1101,7 @@ export function TerminalProvider({ children }) {
       cancelAuth,
       findInTerminal,
       focusTerminal,
+      checkConnectionAlive,
     ],
   );
 

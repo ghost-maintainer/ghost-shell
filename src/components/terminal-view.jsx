@@ -15,6 +15,21 @@ const STATUS_COLOR = {
   "auth-required": "bg-orange-400",
 };
 
+function isNetworkError(message) {
+  if (!message) return false;
+  const msg = message.toLowerCase();
+  return (
+    msg.includes("network is unreachable") ||
+    msg.includes("networkunreachable") ||
+    msg.includes("no route to host") ||
+    msg.includes("unreachable") ||
+    msg.includes("dns") ||
+    msg.includes("os error 51") ||
+    msg.includes("os error 65") ||
+    msg.includes("temporary failure in name resolution")
+  );
+}
+
 export default function TerminalView() {
   const {
     sessions,
@@ -28,6 +43,7 @@ export default function TerminalView() {
     cancelAuth,
     findInTerminal,
     focusTerminal,
+    checkConnectionAlive,
   } = useTerminals();
 
   const [overlayRect, setOverlayRect] = React.useState(null);
@@ -38,6 +54,18 @@ export default function TerminalView() {
   const [showSearch, setShowSearch] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const searchInputRef = React.useRef(null);
+  const [isOnline, setIsOnline] = React.useState(navigator.onLine);
+
+  React.useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   React.useEffect(() => {
     const handleToggleSearch = (e) => {
@@ -75,11 +103,16 @@ export default function TerminalView() {
 
   const activeSession = sessions.find((s) => s.id === activeId);
   const overlayVisible = Boolean(activeId && overlayRect);
-  const showReconnect =
+  const showReconnectOverlay =
     activeSession &&
-    activeSession.status !== "connected" &&
-    activeSession.status !== "connecting";
-  const sessionLog = activeId ? getSessionLog(activeId)?.log : null;
+    (activeSession.status === "disconnected" ||
+      activeSession.status === "error" ||
+      activeSession.status === "restored");
+  const isOfflineMode =
+    !isOnline ||
+    (activeSession?.status === "disconnected" &&
+      activeSession?.stageMessage &&
+      isNetworkError(activeSession.stageMessage));
 
   React.useEffect(() => {
     if (sessions.length === 0) return;
@@ -159,17 +192,7 @@ export default function TerminalView() {
             </span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {showReconnect && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-xs"
-                onClick={() => reconnect(activeId)}
-              >
-                <PlugZap className="size-3" />
-                Reconnect
-              </Button>
-            )}
+
             <Button
               size="icon-xs"
               variant="ghost"
@@ -189,6 +212,8 @@ export default function TerminalView() {
                 if (el) mountRefs.current.set(session.id, el);
                 else mountRefs.current.delete(session.id);
               }}
+              onFocus={() => checkConnectionAlive(session.id)}
+              onClick={() => checkConnectionAlive(session.id)}
               className="absolute inset-0 min-h-0 min-w-0 terminal-surface"
               style={{
                 zIndex: session.id === activeId ? 2 : 1,
@@ -198,11 +223,41 @@ export default function TerminalView() {
             />
           ))}
 
-          {showReconnect && sessionLog && (
-            <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none flex justify-center pb-2">
-              <div className="flex items-center gap-1.5 rounded-md bg-background/90 border px-2 py-1 text-[10px] text-muted-foreground">
-                <ScrollText className="size-3" />
-                Session log restored · click Reconnect to continue
+          {isOfflineMode && (
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-background/80 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="flex flex-col items-center gap-4 text-center max-w-sm p-6 bg-sidebar rounded-xl border border-destructive/20 shadow-2xl">
+                <div className="size-12 rounded-full bg-destructive/15 flex items-center justify-center border border-destructive/30">
+                  <PlugZap className="size-6 text-destructive animate-pulse" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-sm font-semibold text-foreground">Internet Disconnected</h3>
+                  <p className="text-xs text-muted-foreground leading-normal">
+                    Please check your network settings. Reconnecting automatically once internet is restored.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!isOfflineMode && showReconnectOverlay && (
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+              <div className="flex flex-col items-center gap-4 text-center max-w-sm p-6 bg-sidebar rounded-xl border border-border shadow-2xl">
+                <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
+                  <PlugZap className="size-6 text-primary" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-sm font-semibold text-foreground">Session Disconnected</h3>
+                  <p className="text-xs text-muted-foreground leading-normal px-2">
+                    {activeSession?.stageMessage || "The connection to the host was lost."}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="cursor-pointer font-medium mt-1 w-full"
+                  onClick={() => reconnect(activeId)}
+                >
+                  Connect
+                </Button>
               </div>
             </div>
           )}
