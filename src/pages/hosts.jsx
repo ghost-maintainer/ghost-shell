@@ -308,9 +308,9 @@ export default function Hosts() {
                 <div className="size-10 bg-primary rounded-md flex items-center justify-center shrink-0 border border-primary/50">
                   <ServerCogIcon className="size-5 text-primary-foreground" />
                 </div>
-                <div className="flex flex-col space-y-1 items-start justify-center flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-sm font-medium leading-none text-foreground">
+                <div className="flex flex-col space-y-1 items-start justify-center flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 w-full min-w-0">
+                    <p className="text-sm font-medium leading-none text-foreground truncate flex-1">
                       {host.name}
                     </p>
                     <div
@@ -330,7 +330,7 @@ export default function Hosts() {
                       }
                     />
                   </div>
-                  <p className="text-xs leading-none text-foreground/80">
+                  <p className="text-xs leading-none text-foreground/80 truncate w-full">
                     {host.username}@{host.address}:{host.port}
                   </p>
                 </div>
@@ -550,8 +550,8 @@ export default function Hosts() {
                                 : "hover:bg-accent hover:text-accent-foreground text-foreground"
                             }`}
                           >
-                            <span>{k.name}</span>
-                            <span className="opacity-70 uppercase text-[9px]">
+                            <span className="truncate flex-1 pr-2">{k.name}</span>
+                            <span className="opacity-70 uppercase text-[9px] shrink-0">
                               ({k.type})
                             </span>
                           </div>

@@ -271,11 +271,11 @@ export default function KeyChain() {
                 <div className="size-10 bg-primary rounded-md flex items-center justify-center shrink-0 border border-primary/50">
                   <KeyIcon className="size-5 text-primary-foreground" />
                 </div>
-                <div className="flex flex-col space-y-1 items-start justify-center flex-1">
-                  <p className="text-sm font-medium leading-none text-foreground">
+                <div className="flex flex-col space-y-1 items-start justify-center flex-1 min-w-0">
+                  <p className="text-sm font-medium leading-none text-foreground truncate w-full">
                     {key.name}
                   </p>
-                  <p className="text-xs leading-none text-foreground/80 uppercase">
+                  <p className="text-xs leading-none text-foreground/80 uppercase truncate w-full">
                     {key.type} {key.size ? `(${key.size}b)` : ""}
                   </p>
                 </div>
