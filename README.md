@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/assets/app-icon.png" alt="Ghost Shell" width="180">
+  <img src="https://bdzbenxelayuhwwikxbc.supabase.co/storage/v1/object/public/Ghost%20Compiler/app-icon.png" alt="Ghost Shell" width="180">
 </p>
 
 <p align="center">
